@@ -565,6 +565,12 @@ public class MazeRunnerApp extends Application {
         // playSound("file:path/to/win.wav");
         double timeTaken = gameTimer.getElapsedTimeSeconds();
 
+        // First, store all values needed for after celebration completes
+        final int finalLevel = currentLevel;
+        final String difficultyName = currentDifficulty.name();
+        final int finalMoves = movesCount;
+        final double finalTime = timeTaken;
+
         // Celebration animation
         Timeline celebrate = new Timeline(
             new KeyFrame(Duration.ZERO, e -> playerMarker.setFill(Color.GOLD)),
@@ -575,44 +581,69 @@ public class MazeRunnerApp extends Application {
         );
         celebrate.setCycleCount(3);
         celebrate.setOnFinished(e -> {
-            // Ask if player wants to continue to next level or submit score
-            Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-            alert.setTitle("Level Complete!");
-            alert.setHeaderText("You completed Level " + currentLevel + " in " + 
-                String.format("%.2f", timeTaken) + " seconds with " + movesCount + " moves!");
-            alert.setContentText("Would you like to continue to the next level?");
-            
-            ButtonType nextLevelButton = new ButtonType("Next Level");
-            ButtonType submitScoreButton = new ButtonType("Submit Score");
-            ButtonType cancelButton = new ButtonType("Main Menu", ButtonBar.ButtonData.CANCEL_CLOSE);
-            
-            alert.getButtonTypes().setAll(nextLevelButton, submitScoreButton, cancelButton);
-            
-            Optional<ButtonType> result = alert.showAndWait();
-            if (result.get() == nextLevelButton) {
-                nextLevel();
-            } else if (result.get() == submitScoreButton) {
-                // Submit score dialog
-                TextInputDialog dialog = new TextInputDialog("Player");
-                dialog.setTitle("Submit Score");
-                dialog.setHeaderText("Level " + currentLevel + " - " + currentDifficulty.name() + 
-                    "\nTime: " + String.format("%.2f", timeTaken) + " seconds" +
-                    "\nMoves: " + movesCount);
-                dialog.setContentText("Enter your name:");
+            // Make sure any animation has completely finished before showing dialog
+            Platform.runLater(() -> {
+                // Ask if player wants to continue to next level or submit score
+                Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+                alert.setTitle("Level Complete!");
+                alert.setHeaderText("You completed Level " + finalLevel + " in " + 
+                    String.format("%.2f", finalTime) + " seconds with " + finalMoves + " moves!");
+                alert.setContentText("Would you like to continue to the next level?");
                 
-                Optional<String> nameResult = dialog.showAndWait();
-                nameResult.ifPresent(name -> {
-                    // Add difficulty and level info to score
-                    String scoreInfo = currentDifficulty.name() + "_L" + currentLevel;
-                    networkClient.submitScore(name + " [" + scoreInfo + "]", timeTaken);
-                    showHighScores();
+                ButtonType nextLevelButton = new ButtonType("Next Level");
+                ButtonType submitScoreButton = new ButtonType("Submit Score");
+                ButtonType cancelButton = new ButtonType("Main Menu", ButtonBar.ButtonData.CANCEL_CLOSE);
+                
+                alert.getButtonTypes().setAll(nextLevelButton, submitScoreButton, cancelButton);
+                
+                alert.setOnCloseRequest(event -> {
+                    // Handle default close (x button) as cancel
+                    primaryStage.setScene(menuScene);
                 });
-            } else {
-                // Return to main menu
-                primaryStage.setScene(menuScene);
-            }
+                
+                // Use show and handle the button press with a listener instead of blocking with showAndWait
+                alert.show();
+                
+                alert.resultProperty().addListener((observable, oldValue, newValue) -> {
+                    if (newValue == nextLevelButton) {
+                        nextLevel();
+                    } else if (newValue == submitScoreButton) {
+                        showSubmitScoreDialog(finalLevel, difficultyName, finalTime, finalMoves);
+                    } else {
+                        // Return to main menu (for any other result including close button)
+                        primaryStage.setScene(menuScene);
+                    }
+                });
+            });
         });
         celebrate.play();
+    }
+    
+    private void showSubmitScoreDialog(int level, String difficulty, double time, int moves) {
+        // Submit score dialog
+        TextInputDialog dialog = new TextInputDialog("Player");
+        dialog.setTitle("Submit Score");
+        dialog.setHeaderText("Level " + level + " - " + difficulty + 
+            "\nTime: " + String.format("%.2f", time) + " seconds" +
+            "\nMoves: " + moves);
+        dialog.setContentText("Enter your name:");
+        
+        // Again, use a non-blocking approach for this dialog
+        dialog.setOnCloseRequest(event -> {
+            // If dialog is closed without submitting
+            showHighScores();
+        });
+        
+        dialog.show();
+        
+        dialog.resultProperty().addListener((observable, oldValue, newValue) -> {
+            if (newValue != null && !newValue.trim().isEmpty()) {
+                // Add difficulty and level info to score
+                String scoreInfo = difficulty + "_L" + level;
+                networkClient.submitScore(newValue + " [" + scoreInfo + "]", time);
+            }
+            showHighScores();
+        });
     }
 
     private void showHighScores() {
