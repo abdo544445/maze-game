@@ -119,7 +119,7 @@ public class MazeRunnerApp extends Application {
         
         // Instructions
         Text instructionsText = new Text(
-            "Use the arrow keys to navigate through the maze.\n" +
+            "Use the ARROW KEYS or WASD to navigate through the maze.\n" +
             "Reach the gold square to win.\n" +
             "Try to finish in the shortest time with the fewest moves!"
         );
@@ -431,13 +431,26 @@ public class MazeRunnerApp extends Application {
             int nextRow = currentRow;
             int nextCol = currentCol;
 
-            // Convert key code to direction
+            // Convert key code to direction, supporting both arrow keys and WASD
             switch (code) {
-                case UP:    nextRow--; break;
-                case DOWN:  nextRow++; break;
-                case LEFT:  nextCol--; break;
-                case RIGHT: nextCol++; break;
-                default: return; // Ignore other non-special keys
+                case UP:
+                case W:
+                    nextRow--; 
+                    break;
+                case DOWN:
+                case S:
+                    nextRow++; 
+                    break;
+                case LEFT:
+                case A:
+                    nextCol--; 
+                    break;
+                case RIGHT:
+                case D:
+                    nextCol++; 
+                    break;
+                default: 
+                    return; // Ignore other non-special keys
             }
 
             // Check boundaries and walls
@@ -469,7 +482,7 @@ public class MazeRunnerApp extends Application {
         
         // Show instructions on the screen
         Label instructions = new Label(
-            "Use ARROW KEYS to move\n" +
+            "Use ARROW KEYS or WASD to move\n" +
             "SPACE to pause/resume\n" +
             "ESC to return to menu"
         );
