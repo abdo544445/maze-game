@@ -25,6 +25,7 @@ import javafx.util.Duration;
 // import java.io.File;
 
 import java.util.Optional;
+import java.io.File;
 
 public class MazeRunnerApp extends Application {
 
@@ -113,6 +114,10 @@ public class MazeRunnerApp extends Application {
         highScoresButton.setPrefSize(150, 40);
         highScoresButton.setOnAction(e -> showHighScoresFromMenu());
         
+        Button serverButton = new Button("Start Server");
+        serverButton.setPrefSize(150, 40);
+        serverButton.setOnAction(e -> startHighScoreServer());
+        
         Button exitButton = new Button("Exit");
         exitButton.setPrefSize(150, 40);
         exitButton.setOnAction(e -> Platform.exit());
@@ -130,6 +135,7 @@ public class MazeRunnerApp extends Application {
             difficultyBox,
             startButton,
             highScoresButton,
+            serverButton,
             exitButton,
             instructionsText
         );
@@ -197,6 +203,9 @@ public class MazeRunnerApp extends Application {
         Button scoresButton = new Button("High Scores");
         scoresButton.setOnAction(e -> showHighScores());
         
+        Button serverButton = new Button("Start Server");
+        serverButton.setOnAction(e -> startHighScoreServer());
+        
         Button menuButton = new Button("Main Menu");
         menuButton.setOnAction(e -> {
             if (gameTimer != null) {
@@ -205,7 +214,7 @@ public class MazeRunnerApp extends Application {
             primaryStage.setScene(menuScene);
         });
 
-        bottomBar.getChildren().addAll(resetButton, scoresButton, menuButton);
+        bottomBar.getChildren().addAll(resetButton, scoresButton, serverButton, menuButton);
         layout.setBottom(bottomBar);
 
         return layout;
@@ -702,6 +711,98 @@ public class MazeRunnerApp extends Application {
 
         // Fetch scores using network client (runs on background thread)
         networkClient.getHighScores(scoreListView);
+    }
+
+    private void startHighScoreServer() {
+        // Show a dialog explaining the server will start in a new window
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Starting High Score Server");
+        alert.setHeaderText("Starting Server in New Terminal");
+        alert.setContentText("The High Score Server will be started in a new terminal window. " +
+                            "Keep that window open to maintain the server connection.");
+        alert.show();
+        
+        // Start the server in a new terminal window
+        try {
+            String javaHome = System.getProperty("java.home");
+            String javaBin = javaHome + File.separator + "bin" + File.separator + "java";
+            String classpath = System.getProperty("java.class.path");
+            String className = "com.mazerunner.HighScoreServer";
+            
+            // Command to open a new terminal and run the server
+            ProcessBuilder pb;
+            if (System.getProperty("os.name").toLowerCase().contains("win")) {
+                // Windows
+                pb = new ProcessBuilder("cmd", "/c", "start", "cmd", "/k", 
+                    "java -cp " + classpath + " " + className);
+            } else {
+                // Linux/Mac - try various terminal emulators
+                try {
+                    pb = new ProcessBuilder("gnome-terminal", "--", "java", "-cp", 
+                        classpath, className);
+                    pb.start();
+                    return;
+                } catch (Exception e1) {
+                    try {
+                        pb = new ProcessBuilder("xterm", "-e", "java", "-cp", 
+                            classpath, className);
+                        pb.start();
+                        return;
+                    } catch (Exception e2) {
+                        try {
+                            pb = new ProcessBuilder("konsole", "--", "java", "-cp", 
+                                classpath, className);
+                            pb.start();
+                            return;
+                        } catch (Exception e3) {
+                            // Fall back to just running in background
+                            pb = new ProcessBuilder(javaBin, "-cp", classpath, className);
+                        }
+                    }
+                }
+            }
+            
+            Process process = pb.start();
+            
+            // Tell the user it started
+            Platform.runLater(() -> {
+                Alert successAlert = new Alert(Alert.AlertType.INFORMATION);
+                successAlert.setTitle("Server Started");
+                successAlert.setHeaderText("High Score Server Running");
+                successAlert.setContentText("The server is now running. You can submit and view high scores.");
+                successAlert.show();
+                
+                // Check connection after a brief delay
+                Timeline checkConnection = new Timeline(
+                    new KeyFrame(Duration.seconds(2), e -> checkServerConnection())
+                );
+                checkConnection.play();
+            });
+        } catch (Exception e) {
+            Platform.runLater(() -> {
+                Alert errorAlert = new Alert(Alert.AlertType.ERROR);
+                errorAlert.setTitle("Server Error");
+                errorAlert.setHeaderText("Could not start server");
+                errorAlert.setContentText("Error: " + e.getMessage() + 
+                    "\n\nTry starting it manually with:\nmvn compile exec:java -Dexec.mainClass=\"com.mazerunner.HighScoreServer\"");
+                errorAlert.show();
+            });
+        }
+    }
+    
+    private void checkServerConnection() {
+        // Just try to get scores to test connection - we won't display anything
+        networkClient.testConnection(success -> {
+            if (success) {
+                Platform.runLater(() -> {
+                    Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                    alert.setTitle("Server Connection");
+                    alert.setHeaderText("Connected to Server");
+                    alert.setContentText("Successfully connected to the High Score Server!");
+                    alert.show();
+                });
+            }
+        });
     }
 
     /*
