@@ -11,6 +11,7 @@ A JavaFX maze runner game where players navigate through randomly generated maze
 - **Time and Move Tracking**: Compete to finish levels in the shortest time with fewest moves
 - **Network-enabled High Score System**: Compare your performance with others
 - **Persistence**: High scores are saved between game sessions
+- **Flexible Controls**: Navigate using either WASD or arrow keys
 
 ## Prerequisites
 
@@ -48,7 +49,11 @@ mvn exec:java -Dexec.mainClass="com.mazerunner.MazeRunnerApp"
 ## How to Play
 
 - **Start Screen**: Select your difficulty level and click "Start Game"
-- **Navigation**: Use the arrow keys to move through the maze
+- **Navigation**: Use the arrow keys or WASD keys to move through the maze:
+  - W or ↑: Move up
+  - A or ←: Move left
+  - S or ↓: Move down
+  - D or →: Move right
 - **Objective**: Reach the gold square to complete each level
 - **Advancing**: After completing a level, choose to proceed to the next level or submit your score
 - **High Scores**: View the leaderboard to see how your time compares to others
