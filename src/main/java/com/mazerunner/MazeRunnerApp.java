@@ -714,10 +714,14 @@ public class MazeRunnerApp extends Application {
      */
     private void checkWin() {
         if (player.getRow() == maze.getEndRow() && player.getCol() == maze.getEndCol()) {
+            // Stop the timer immediately to record the final time
+            double finalTime = gameTimer.getElapsedTime();
+            gameTimer.stop();
+            
             // Play victory animation before showing dialog
             playWinAnimation(() -> {
-                double time = gameTimer.getElapsedTime();
-                showFinishDialog(time);
+                // Use Platform.runLater to ensure dialog shows after animation completes
+                Platform.runLater(() -> showFinishDialog(finalTime));
             });
         }
     }
@@ -727,60 +731,79 @@ public class MazeRunnerApp extends Application {
      * @param time the time taken to complete the level
      */
     private void showFinishDialog(double time) {
-        gameTimer.stop();
-        
-        // Prompt for name and show options for next action
+        // Create the name input dialog
         TextInputDialog nameDialog = new TextInputDialog("Player");
         nameDialog.setTitle("Level Complete!");
         nameDialog.setHeaderText("You completed level " + currentLevel + " in " + String.format("%.1f", time) + " seconds!");
         nameDialog.setContentText("Enter your name to save your score:");
         
-        Optional<String> result = nameDialog.showAndWait();
-        result.ifPresent(name -> {
-            // Submit score to server with all details
-            networkClient.submitScore(name, time, currentDifficulty.name(), currentLevel, movesCount);
-            
-            // Show dialog with options
-            Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-            alert.setTitle("Level Complete!");
-            alert.setHeaderText("What would you like to do next?");
-            alert.setContentText("Continue to the next level or return to the main menu?");
-            
-            ButtonType nextLevelButton = new ButtonType("Next Level");
-            ButtonType viewScoresButton = new ButtonType("View High Scores");
-            ButtonType menuButton = new ButtonType("Main Menu");
-            
-            alert.getButtonTypes().setAll(nextLevelButton, viewScoresButton, menuButton);
-            
-            Optional<ButtonType> choice = alert.showAndWait();
-            if (choice.isPresent()) {
-                if (choice.get() == nextLevelButton) {
-                    // Start next level
-                    currentLevel++;
-                    maze = new Maze(currentDifficulty);
-                    player = new Player(maze.getStartRow(), maze.getStartCol());
-                    movesCount = 0;
-                    drawMaze();
-                    drawPlayer();
-                    difficultyLabel.setText("Level " + currentLevel + " - " + currentDifficulty.name());
-                    movesLabel.setText("Moves: 0");
-                    startGame();
-                } else if (choice.get() == viewScoresButton) {
-                    showHighScores();
-                } else {
-                    // Return to main menu
-                    primaryStage.setScene(menuScene);
-                }
+        // Use show() instead of showAndWait() and handle the result with a listener
+        nameDialog.show();
+        
+        // Add a listener to handle when the dialog is closed
+        nameDialog.resultProperty().addListener((observable, oldValue, playerName) -> {
+            if (playerName != null && !playerName.trim().isEmpty()) {
+                // Submit score to server with all details
+                networkClient.submitScore(playerName, time, currentDifficulty.name(), currentLevel, movesCount);
+                
+                // Show options dialog
+                showNextOptionsDialog(time);
+            } else {
+                // If they canceled, just show the options dialog anyway
+                showNextOptionsDialog(time);
             }
         });
     }
 
-    private void playWinAnimation(Runnable onFinished) {
-        // Stop the timer during the animation
-        if (gameTimer != null) {
-            gameTimer.pause();
-        }
+    /**
+     * Show options dialog for what to do next
+     */
+    private void showNextOptionsDialog(double time) {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Level Complete!");
+        alert.setHeaderText("What would you like to do next?");
+        alert.setContentText("Continue to the next level or view high scores?");
         
+        ButtonType nextLevelButton = new ButtonType("Next Level");
+        ButtonType viewScoresButton = new ButtonType("View High Scores");
+        ButtonType menuButton = new ButtonType("Main Menu");
+        
+        alert.getButtonTypes().setAll(nextLevelButton, viewScoresButton, menuButton);
+        
+        // Use show() instead of showAndWait()
+        alert.show();
+        
+        // Add a listener to handle the result
+        alert.resultProperty().addListener((observable, oldValue, result) -> {
+            if (result == nextLevelButton) {
+                // Start next level
+                startNextLevel();
+            } else if (result == viewScoresButton) {
+                // Show high scores
+                showHighScores();
+            } else {
+                // Return to main menu
+                primaryStage.setScene(menuScene);
+            }
+        });
+    }
+
+    /**
+     * Start the next level
+     */
+    private void startNextLevel() {
+        currentLevel++;
+        maze = new Maze(currentDifficulty);
+        player = new Player(maze.getStartRow(), maze.getStartCol());
+        movesCount = 0;
+        drawMaze();
+        drawPlayer();
+        difficultyLabel.setText("Level " + currentLevel + " - " + currentDifficulty.name());
+        movesLabel.setText("Moves: 0");
+        startGame();
+    }
+
+    private void playWinAnimation(Runnable onFinished) {
         // Create victory particles
         List<Circle> particles = new ArrayList<>();
         Random random = new Random();
