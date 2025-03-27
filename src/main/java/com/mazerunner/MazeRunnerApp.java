@@ -6,6 +6,7 @@ import javafx.animation.TranslateTransition;
 import javafx.animation.FadeTransition;
 import javafx.animation.ParallelTransition;
 import javafx.animation.SequentialTransition;
+import javafx.animation.ScaleTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -36,7 +37,10 @@ import java.util.Random;
 public class MazeRunnerApp extends Application {
 
     private static final int TILE_SIZE = 30;
-    private static final double MOVEMENT_DURATION = 150; // milliseconds for movement animation
+    private static final double MOVEMENT_DURATION = 200; // milliseconds for movement animation
+    private static final double WALL_COLLISION_SHAKE_DURATION = 100; // For wall collision animation
+    private static final int BREADCRUMB_MAX_COUNT = 20; // Maximum number of movement breadcrumbs to show
+    
     private Maze maze;
     private Maze.Difficulty currentDifficulty = Maze.Difficulty.MEDIUM;
     private Player player;
@@ -65,6 +69,9 @@ public class MazeRunnerApp extends Application {
     // MediaPlayer backgroundMusicPlayer;
     // MediaPlayer sfxPlayer;
 
+    // Add animation-related fields
+    private List<Circle> breadcrumbs = new ArrayList<>(); // Track player's path with breadcrumbs
+    private Timeline pathPulseTimeline; // Timeline for pulsing path animation
 
     @Override
     public void start(Stage stage) {
@@ -386,32 +393,44 @@ public class MazeRunnerApp extends Application {
     }
 
     private void drawPlayer() {
-        // Create player circle (or sprite)
+        // Clear any existing breadcrumbs
+        breadcrumbs.clear();
+        
+        // Create player circle with gradient fill for more depth
+        javafx.scene.paint.RadialGradient playerGradient = new javafx.scene.paint.RadialGradient(
+            0, 0, 0.3, 0.3, 0.7, true, javafx.scene.paint.CycleMethod.NO_CYCLE,
+            new javafx.scene.paint.Stop(0, Color.rgb(100, 180, 255)),
+            new javafx.scene.paint.Stop(1, Color.rgb(30, 100, 200))
+        );
+        
         playerMarker = new Circle(
             player.getCol() * TILE_SIZE + TILE_SIZE / 2,
             player.getRow() * TILE_SIZE + TILE_SIZE / 2,
-            TILE_SIZE / 3,
-            Color.rgb(30, 144, 255) // DodgerBlue - more vibrant
+            TILE_SIZE / 3
         );
+        playerMarker.setFill(playerGradient);
         
         // Add a stroke for better visibility
-        playerMarker.setStroke(Color.BLUE);
+        playerMarker.setStroke(Color.rgb(20, 70, 170));
         playerMarker.setStrokeWidth(2);
         
-        // Add a glow effect to the player
-        javafx.scene.effect.Glow glow = new javafx.scene.effect.Glow(0.4);
-        playerMarker.setEffect(glow);
+        // Add enhanced glow and shadow effect
+        javafx.scene.effect.Glow glow = new javafx.scene.effect.Glow(0.6);
+        javafx.scene.effect.DropShadow shadow = new javafx.scene.effect.DropShadow();
+        shadow.setInput(glow);
+        shadow.setColor(Color.rgb(50, 120, 220, 0.7));
+        shadow.setRadius(10);
+        shadow.setSpread(0.2);
+        playerMarker.setEffect(shadow);
         
-        // Alternative with image
-        /*
-        Image playerImage = new Image("player.png");
-        playerImageView = new ImageView(playerImage);
-        playerImageView.setFitHeight(TILE_SIZE * 0.8);
-        playerImageView.setFitWidth(TILE_SIZE * 0.8);
-        playerImageView.setX(player.getCol() * TILE_SIZE + TILE_SIZE * 0.1);
-        playerImageView.setY(player.getRow() * TILE_SIZE + TILE_SIZE * 0.1);
-        gamePane.getChildren().add(playerImageView);
-        */
+        // Add slight pulsing animation to player marker when idle
+        Timeline playerPulse = new Timeline(
+            new KeyFrame(Duration.ZERO, e -> playerMarker.setRadius(TILE_SIZE / 3)),
+            new KeyFrame(Duration.seconds(1), e -> playerMarker.setRadius(TILE_SIZE / 3 * 0.9)),
+            new KeyFrame(Duration.seconds(2), e -> playerMarker.setRadius(TILE_SIZE / 3))
+        );
+        playerPulse.setCycleCount(Timeline.INDEFINITE);
+        playerPulse.play();
         
         gamePane.getChildren().add(playerMarker);
     }
@@ -454,21 +473,39 @@ public class MazeRunnerApp extends Application {
     }
 
     private void resetGame() {
-        // Reset player to start position
-        player.setPosition(maze.getStartRow(), maze.getStartCol());
+        // Add a flash effect
+        Rectangle flash = new Rectangle(0, 0, gamePane.getWidth(), gamePane.getHeight());
+        flash.setFill(Color.WHITE);
+        flash.setOpacity(0.7);
+        gamePane.getChildren().add(flash);
         
-        // Reset timer and move counter
-        if (gameTimer != null) {
-            gameTimer.stop();
-            gameTimer.start();
-        }
+        // Fade out flash
+        FadeTransition flashFade = new FadeTransition(Duration.millis(400), flash);
+        flashFade.setFromValue(0.7);
+        flashFade.setToValue(0);
         
-        movesCount = 0;
-        movesLabel.setText("Moves: 0");
+        flashFade.setOnFinished(e -> {
+            // Remove flash
+            gamePane.getChildren().remove(flash);
+            
+            // Reset player to start position
+            player.setPosition(maze.getStartRow(), maze.getStartCol());
+            
+            // Reset timer and move counter
+            if (gameTimer != null) {
+                gameTimer.stop();
+                gameTimer.start();
+            }
+            
+            movesCount = 0;
+            movesLabel.setText("Moves: 0");
+            
+            // Redraw maze and player
+            drawMaze();
+            drawPlayer();
+        });
         
-        // Redraw maze and player
-        drawMaze();
-        drawPlayer();
+        flashFade.play();
     }
 
     private void setupKeyHandler(Scene scene) {
@@ -561,11 +598,28 @@ public class MazeRunnerApp extends Application {
     private void movePlayer(int newRow, int newCol) {
         isMoving = true;
         
-        // Store original color for reset after movement
-        Color originalColor = (Color) playerMarker.getFill();
+        // First check if this is a valid move
+        if (!maze.isValidMove(newRow, newCol)) {
+            // Wall collision animation
+            playCollisionAnimation();
+            return;
+        }
         
-        // Change color during movement for visual feedback
-        playerMarker.setFill(Color.rgb(50, 205, 50)); // LimeGreen
+        // Create a breadcrumb at the current position
+        leaveBreadcrumb();
+        
+        // Store original appearance for reset after movement
+        javafx.scene.paint.Paint originalFill = playerMarker.getFill();
+        double originalStrokeWidth = playerMarker.getStrokeWidth();
+        
+        // Change appearance during movement for visual feedback
+        javafx.scene.paint.RadialGradient moveGradient = new javafx.scene.paint.RadialGradient(
+            0, 0, 0.3, 0.3, 0.7, true, javafx.scene.paint.CycleMethod.NO_CYCLE,
+            new javafx.scene.paint.Stop(0, Color.rgb(120, 255, 120)),
+            new javafx.scene.paint.Stop(1, Color.rgb(30, 180, 30))
+        );
+        playerMarker.setFill(moveGradient);
+        playerMarker.setStrokeWidth(3);
         
         // Calculate pixel coordinates
         double startX = playerMarker.getCenterX();
@@ -579,9 +633,28 @@ public class MazeRunnerApp extends Application {
         transition.setFromY(0);
         transition.setToX(endX - startX);
         transition.setToY(endY - startY);
-        transition.setInterpolator(javafx.animation.Interpolator.EASE_OUT); // Smoother movement
+        transition.setInterpolator(javafx.animation.Interpolator.SPLINE(0.4, 0, 0.2, 1)); // Custom easing
         
-        transition.setOnFinished(e -> {
+        // Create scaling effect during movement
+        Timeline scaleEffect = new Timeline(
+            new KeyFrame(Duration.ZERO, e -> {
+                playerMarker.setScaleX(1.0);
+                playerMarker.setScaleY(1.0);
+            }),
+            new KeyFrame(Duration.millis(MOVEMENT_DURATION / 2), e -> {
+                playerMarker.setScaleX(1.2);
+                playerMarker.setScaleY(1.2);
+            }),
+            new KeyFrame(Duration.millis(MOVEMENT_DURATION), e -> {
+                playerMarker.setScaleX(1.0);
+                playerMarker.setScaleY(1.0);
+            })
+        );
+        
+        // Play both animations in parallel
+        ParallelTransition combinedAnimation = new ParallelTransition(transition, scaleEffect);
+        
+        combinedAnimation.setOnFinished(e -> {
             // Update player position in model
             player.setPosition(newRow, newCol);
             
@@ -591,8 +664,9 @@ public class MazeRunnerApp extends Application {
             playerMarker.setCenterX(endX);
             playerMarker.setCenterY(endY);
             
-            // Reset to original color
-            playerMarker.setFill(originalColor);
+            // Reset to original appearance
+            playerMarker.setFill(originalFill);
+            playerMarker.setStrokeWidth(originalStrokeWidth);
             
             // Allow movement again
             isMoving = false;
@@ -602,7 +676,7 @@ public class MazeRunnerApp extends Application {
         });
         
         try {
-            transition.play();
+            combinedAnimation.play();
         } catch (Exception e) {
             // Fallback in case animation fails
             System.err.println("Animation error: " + e.getMessage());
@@ -611,10 +685,66 @@ public class MazeRunnerApp extends Application {
             playerMarker.setCenterX(endX);
             playerMarker.setCenterY(endY);
             player.setPosition(newRow, newCol);
-            playerMarker.setFill(originalColor);
+            playerMarker.setFill(originalFill);
+            playerMarker.setStrokeWidth(originalStrokeWidth);
             isMoving = false;
             checkWin();
         }
+    }
+
+    private void leaveBreadcrumb() {
+        // Create a small circle at the player's current position as a breadcrumb trail
+        Circle breadcrumb = new Circle(
+            player.getCol() * TILE_SIZE + TILE_SIZE / 2,
+            player.getRow() * TILE_SIZE + TILE_SIZE / 2,
+            TILE_SIZE / 10,
+            Color.rgb(100, 150, 255, 0.5)
+        );
+        
+        // Add subtle glow
+        javafx.scene.effect.Glow glow = new javafx.scene.effect.Glow(0.3);
+        breadcrumb.setEffect(glow);
+        
+        // Add to game pane behind player
+        gamePane.getChildren().add(gamePane.getChildren().indexOf(playerMarker), breadcrumb);
+        
+        // Add to list of breadcrumbs
+        breadcrumbs.add(breadcrumb);
+        
+        // If we have too many breadcrumbs, remove the oldest
+        if (breadcrumbs.size() > BREADCRUMB_MAX_COUNT) {
+            Circle oldest = breadcrumbs.remove(0);
+            
+            // Fade out the oldest breadcrumb before removing
+            FadeTransition fadeOut = new FadeTransition(Duration.millis(500), oldest);
+            fadeOut.setFromValue(0.5);
+            fadeOut.setToValue(0);
+            fadeOut.setOnFinished(e -> gamePane.getChildren().remove(oldest));
+            fadeOut.play();
+        }
+    }
+
+    private void playCollisionAnimation() {
+        // Create shaking animation for wall collision
+        Timeline shakeAnimation = new Timeline(
+            new KeyFrame(Duration.ZERO, e -> playerMarker.setTranslateX(0)),
+            new KeyFrame(Duration.millis(WALL_COLLISION_SHAKE_DURATION * 0.2), e -> playerMarker.setTranslateX(-3)),
+            new KeyFrame(Duration.millis(WALL_COLLISION_SHAKE_DURATION * 0.4), e -> playerMarker.setTranslateX(3)),
+            new KeyFrame(Duration.millis(WALL_COLLISION_SHAKE_DURATION * 0.6), e -> playerMarker.setTranslateX(-3)),
+            new KeyFrame(Duration.millis(WALL_COLLISION_SHAKE_DURATION * 0.8), e -> playerMarker.setTranslateX(3)),
+            new KeyFrame(Duration.millis(WALL_COLLISION_SHAKE_DURATION), e -> playerMarker.setTranslateX(0))
+        );
+        
+        // Change color during collision
+        javafx.scene.paint.Paint originalFill = playerMarker.getFill();
+        playerMarker.setFill(Color.rgb(255, 80, 80));
+        
+        shakeAnimation.setOnFinished(e -> {
+            playerMarker.setFill(originalFill);
+            isMoving = false;
+        });
+        
+        shakeAnimation.play();
     }
 
     private void showHighScores() {
@@ -804,43 +934,135 @@ public class MazeRunnerApp extends Application {
     }
 
     private void playWinAnimation(Runnable onFinished) {
-        // Create victory particles
+        // Create victory particles with improved effects
         List<Circle> particles = new ArrayList<>();
         Random random = new Random();
         
-        for (int i = 0; i < 50; i++) {
-            Circle particle = new Circle(3);
-            particle.setFill(Color.color(
-                random.nextDouble(), 
-                random.nextDouble(), 
-                random.nextDouble()
-            ));
+        // Different particle colors
+        Color[] particleColors = {
+            Color.GOLD, Color.YELLOW, Color.ORANGE, Color.RED, 
+            Color.MAGENTA, Color.PURPLE, Color.BLUE, Color.CYAN, 
+            Color.GREEN, Color.LIMEGREEN
+        };
+        
+        // Create more varied particles with different sizes
+        for (int i = 0; i < 100; i++) {
+            Circle particle = new Circle(2 + random.nextInt(4));
+            
+            // Pick a color from our palette
+            Color baseColor = particleColors[random.nextInt(particleColors.length)];
+            
+            // Create a gradient for each particle
+            javafx.scene.paint.RadialGradient particleGradient = new javafx.scene.paint.RadialGradient(
+                0, 0, 0.5, 0.5, 1.0, true, javafx.scene.paint.CycleMethod.NO_CYCLE,
+                new javafx.scene.paint.Stop(0, baseColor.brighter()),
+                new javafx.scene.paint.Stop(1, baseColor)
+            );
+            
+            particle.setFill(particleGradient);
+            
+            // Add glow effect to particles
+            javafx.scene.effect.Glow particleGlow = new javafx.scene.effect.Glow(0.8);
+            particle.setEffect(particleGlow);
+            
+            // Set initial position
             particle.setCenterX(playerMarker.getCenterX());
             particle.setCenterY(playerMarker.getCenterY());
+            
             particles.add(particle);
             gamePane.getChildren().add(particle);
         }
         
-        // Animate player
+        // Enhanced player animation with rotation and scale
         Timeline playerAnimation = new Timeline(
-            new KeyFrame(Duration.ZERO, e -> playerMarker.setFill(Color.GOLD)),
-            new KeyFrame(Duration.millis(200), e -> playerMarker.setFill(Color.GREEN)),
-            new KeyFrame(Duration.millis(400), e -> playerMarker.setFill(Color.BLUE)),
-            new KeyFrame(Duration.millis(600), e -> playerMarker.setFill(Color.PURPLE)),
-            new KeyFrame(Duration.millis(800), e -> playerMarker.setFill(Color.RED))
+            new KeyFrame(Duration.ZERO, e -> {
+                playerMarker.setFill(Color.GOLD);
+                playerMarker.setScaleX(1.0);
+                playerMarker.setScaleY(1.0);
+                playerMarker.setRotate(0);
+            }),
+            new KeyFrame(Duration.millis(150), e -> {
+                playerMarker.setFill(Color.YELLOW);
+                playerMarker.setScaleX(1.5);
+                playerMarker.setScaleY(1.5);
+                playerMarker.setRotate(45);
+            }),
+            new KeyFrame(Duration.millis(300), e -> {
+                playerMarker.setFill(Color.ORANGE);
+                playerMarker.setScaleX(1.2);
+                playerMarker.setScaleY(1.2);
+                playerMarker.setRotate(90);
+            }),
+            new KeyFrame(Duration.millis(450), e -> {
+                playerMarker.setFill(Color.RED);
+                playerMarker.setScaleX(1.5);
+                playerMarker.setScaleY(1.5);
+                playerMarker.setRotate(135);
+            }),
+            new KeyFrame(Duration.millis(600), e -> {
+                playerMarker.setFill(Color.MAGENTA);
+                playerMarker.setScaleX(1.2);
+                playerMarker.setScaleY(1.2);
+                playerMarker.setRotate(180);
+            }),
+            new KeyFrame(Duration.millis(750), e -> {
+                playerMarker.setFill(Color.BLUE);
+                playerMarker.setScaleX(1.5);
+                playerMarker.setScaleY(1.5);
+                playerMarker.setRotate(225);
+            }),
+            new KeyFrame(Duration.millis(900), e -> {
+                playerMarker.setFill(Color.CYAN);
+                playerMarker.setScaleX(1.2);
+                playerMarker.setScaleY(1.2);
+                playerMarker.setRotate(270);
+            }),
+            new KeyFrame(Duration.millis(1050), e -> {
+                playerMarker.setFill(Color.GREEN);
+                playerMarker.setScaleX(1.5);
+                playerMarker.setScaleY(1.5);
+                playerMarker.setRotate(315);
+            }),
+            new KeyFrame(Duration.millis(1200), e -> {
+                playerMarker.setFill(Color.GOLD);
+                playerMarker.setScaleX(1.0);
+                playerMarker.setScaleY(1.0);
+                playerMarker.setRotate(360);
+            })
         );
-        playerAnimation.setCycleCount(3);
+        playerAnimation.setCycleCount(2);
         
-        // Animate particles
+        // Animate particles with varied movements
         List<TranslateTransition> particleAnimations = new ArrayList<>();
         for (Circle particle : particles) {
+            // Calculate a random angle and distance
+            double angle = random.nextDouble() * 2 * Math.PI;
+            double distance = TILE_SIZE * (2 + random.nextDouble() * 5);
+            
+            // Convert to X and Y coordinates
+            double endX = Math.cos(angle) * distance;
+            double endY = Math.sin(angle) * distance;
+            
+            // Create the particle animation
             TranslateTransition tt = new TranslateTransition(
-                Duration.millis(1000 + random.nextInt(1000)), 
+                Duration.millis(1000 + random.nextInt(1500)), 
                 particle
             );
-            tt.setByX((random.nextDouble() * 2 - 1) * TILE_SIZE * 5);
-            tt.setByY((random.nextDouble() * 2 - 1) * TILE_SIZE * 5);
-            tt.setCycleCount(1);
+            tt.setByX(endX);
+            tt.setByY(endY);
+            
+            // Add some randomized scaling
+            ScaleTransition st = new ScaleTransition(
+                Duration.millis(1000 + random.nextInt(1000)),
+                particle
+            );
+            st.setFromX(1.0);
+            st.setFromY(1.0);
+            st.setToX(0);
+            st.setToY(0);
+            
+            // Create a parallel transition for this particle
+            ParallelTransition pt = new ParallelTransition(particle, tt, st);
             particleAnimations.add(tt);
         }
         
@@ -848,15 +1070,33 @@ public class MazeRunnerApp extends Application {
         ParallelTransition parallelTransition = new ParallelTransition();
         parallelTransition.getChildren().addAll(particleAnimations);
         
-        // Play all animations together
+        // Create a flash effect for the background
+        Rectangle flash = new Rectangle(0, 0, gamePane.getWidth(), gamePane.getHeight());
+        flash.setFill(Color.WHITE);
+        flash.setOpacity(0);
+        gamePane.getChildren().add(flash);
+        
+        // Create flash animation
+        FadeTransition flashFade = new FadeTransition(Duration.millis(300), flash);
+        flashFade.setFromValue(0.7);
+        flashFade.setToValue(0);
+        
+        // Play all animations in sequence
         SequentialTransition sequence = new SequentialTransition(
+            flashFade,
             playerAnimation,
             parallelTransition
         );
         
         sequence.setOnFinished(e -> {
-            // Clean up particles
+            // Clean up particles and flash
             gamePane.getChildren().removeAll(particles);
+            gamePane.getChildren().remove(flash);
+            
+            // Reset player appearance
+            playerMarker.setScaleX(1.0);
+            playerMarker.setScaleY(1.0);
+            playerMarker.setRotate(0);
             
             // Call finish handler
             if (onFinished != null) {
