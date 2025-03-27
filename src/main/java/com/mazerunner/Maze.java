@@ -23,10 +23,10 @@ public class Maze {
     private final Random random = new Random();
     
     // Control maze complexity
-    private final double LOOP_CHANCE = 0.15; // Chance to create loops (multiple paths)
-    private final double DEAD_END_CHANCE = 0.35; // Chance to create deliberate dead ends
-    private final int MIN_DEAD_END_LENGTH = 2; // Minimum length of dead-end paths
-    private final int MAX_DEAD_END_LENGTH = 8; // Maximum length of dead-end paths
+    private final double LOOP_CHANCE = 0.25; // Increase chance to create loops (multiple paths)
+    private final double BRANCH_PATH_CHANCE = 0.4; // Chance to create branch paths that lead somewhere
+    private final int MIN_BRANCH_LENGTH = 4; // Minimum length of branch paths - ensure they lead somewhere
+    private final int MAX_BRANCH_LENGTH = 10; // Maximum length of branch paths
     
     public enum Difficulty {
         EASY(11, 11),      // Small maze
@@ -73,11 +73,14 @@ public class Maze {
         // Add some random loops to create multiple paths
         addLoops(pathCells);
         
-        // Add deliberate dead ends
-        addDeadEnds();
+        // Add meaningful branch paths instead of short dead ends
+        addBranchPaths(pathCells);
 
         // Place the goal at a reasonable distance from start
         placeGoal();
+        
+        // Eliminate single-cell dead ends
+        eliminateSingleDeadEnds();
     }
 
     private void recursiveBacktracking(int r, int c, List<int[]> pathCells) {
@@ -151,124 +154,402 @@ public class Maze {
         }
     }
     
-    private void addDeadEnds() {
-        // Add deliberate dead-end paths
-        int numDeadEnds = (int)((rows * cols) * DEAD_END_CHANCE / 20); // Scale based on maze size
+    private void addBranchPaths(List<int[]> pathCells) {
+        // Add branch paths that lead to substantial areas rather than immediate dead ends
+        int numBranches = (int)((rows * cols) * BRANCH_PATH_CHANCE / 15); // Scale based on maze size
         
-        for (int i = 0; i < numDeadEnds; i++) {
-            // Find a random wall with at least one adjacent path
-            int r, c;
-            boolean validStartFound = false;
-            int maxAttempts = 50;
-            int attempts = 0;
+        for (int i = 0; i < numBranches; i++) {
+            // Choose a random path cell to start a branch from
+            int[] startCell = pathCells.get(random.nextInt(pathCells.size()));
+            int r = startCell[0];
+            int c = startCell[1];
             
-            do {
-                r = random.nextInt(rows - 2) + 1;
-                c = random.nextInt(cols - 2) + 1;
-                attempts++;
-                
-                if (grid[r][c] == 1 && hasAdjacentPath(r, c)) {
-                    validStartFound = true;
+            // Find a direction where we can create a meaningful branch
+            int[] dr = {-1, 0, 1, 0};
+            int[] dc = {0, 1, 0, -1};
+            
+            // Shuffle directions
+            List<Integer> directions = new ArrayList<>();
+            for (int j = 0; j < 4; j++) {
+                directions.add(j);
+            }
+            Collections.shuffle(directions, random);
+            
+            for (int dirIndex : directions) {
+                // Check if we can start a branch in this direction
+                if (canCreateBranchInDirection(r, c, dr[dirIndex], dc[dirIndex])) {
+                    // Create a branch path
+                    createBranchPath(r, c, dr[dirIndex], dc[dirIndex]);
+                    break;
                 }
-            } while (!validStartFound && attempts < maxAttempts);
-            
-            if (validStartFound) {
-                // Create a random length dead-end path
-                int pathLength = random.nextInt(MAX_DEAD_END_LENGTH - MIN_DEAD_END_LENGTH) + MIN_DEAD_END_LENGTH;
-                carveDeadEnd(r, c, pathLength);
             }
         }
     }
     
-    private boolean hasAdjacentPath(int r, int c) {
-        int[] dr = {-1, 0, 1, 0};
-        int[] dc = {0, 1, 0, -1};
+    private boolean canCreateBranchInDirection(int r, int c, int dr, int dc) {
+        // Check if we can create a branch in the given direction
+        int newR = r + dr;
+        int newC = c + dc;
         
-        int pathCount = 0;
-        int wallCount = 0;
+        // The adjacent cell must be a wall
+        if (!isInBounds(newR, newC) || grid[newR][newC] != 1) {
+            return false;
+        }
         
-        for (int i = 0; i < 4; i++) {
-            int newR = r + dr[i];
-            int newC = c + dc[i];
+        // Check if there's space to create a meaningful branch (at least MIN_BRANCH_LENGTH cells)
+        int spaceAvailable = 0;
+        int checkR = newR;
+        int checkC = newC;
+        
+        // Straight-line check for simplicity
+        for (int i = 0; i < MIN_BRANCH_LENGTH + 2; i++) {
+            checkR += dr;
+            checkC += dc;
             
-            if (newR > 0 && newR < rows - 1 && newC > 0 && newC < cols - 1) {
-                if (grid[newR][newC] == 0) {
-                    pathCount++;
-                } else {
-                    wallCount++;
-                }
+            if (!isInBounds(checkR, checkC)) {
+                return false;
+            }
+            
+            if (grid[checkR][checkC] == 1) {
+                spaceAvailable++;
+            } else {
+                return false; // Hit an existing path too soon
             }
         }
         
-        // We want exactly one adjacent path cell and three wall cells to start a dead end
-        return pathCount == 1 && wallCount == 3;
+        return spaceAvailable >= MIN_BRANCH_LENGTH;
     }
     
-    private void carveDeadEnd(int startR, int startC, int length) {
+    private void createBranchPath(int startR, int startC, int dr, int dc) {
+        // Create a branch path starting from the given cell in the given direction
         int r = startR;
         int c = startC;
         
-        // Find the direction to the adjacent path
+        // Determine branch length
+        int branchLength = random.nextInt(MAX_BRANCH_LENGTH - MIN_BRANCH_LENGTH) + MIN_BRANCH_LENGTH;
+        
+        // Create the branch - first connect to the starting cell
+        r += dr;
+        c += dc;
+        grid[r][c] = 0; // Make the wall a path
+        
+        // Now create a winding path
+        for (int i = 0; i < branchLength; i++) {
+            // Choose a direction - prefer continuing in same direction
+            List<int[]> possibleDirs = new ArrayList<>();
+            
+            // Check all four directions
+            int[] drs = {-1, 0, 1, 0};
+            int[] dcs = {0, 1, 0, -1};
+            
+            for (int j = 0; j < 4; j++) {
+                int newR = r + drs[j];
+                int newC = c + dcs[j];
+                
+                // Check if we can move in this direction (must be a wall and in bounds)
+                if (isInBounds(newR, newC) && grid[newR][newC] == 1) {
+                    // Check if this creates an unwanted connection to another path
+                    boolean createsCrossConnection = false;
+                    
+                    // Check if any adjacent cells (except the one we came from) are paths
+                    for (int k = 0; k < 4; k++) {
+                        int adjR = newR + drs[k];
+                        int adjC = newC + dcs[k];
+                        
+                        if (isInBounds(adjR, adjC) && grid[adjR][adjC] == 0 &&
+                            !(adjR == r && adjC == c)) { // not the cell we came from
+                            createsCrossConnection = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!createsCrossConnection) {
+                        // Prioritize continuing in the same direction
+                        if ((drs[j] == dr && dcs[j] == dc) || possibleDirs.isEmpty()) {
+                            possibleDirs.add(new int[]{drs[j], dcs[j]});
+                        }
+                    }
+                }
+            }
+            
+            // If no valid direction, end the branch
+            if (possibleDirs.isEmpty()) {
+                break;
+            }
+            
+            // Choose a direction, with higher probability for continuing in the same direction
+            int[] nextDir;
+            if (possibleDirs.size() > 1 && random.nextDouble() < 0.7) {
+                // Try to continue in the same direction
+                boolean foundSameDir = false;
+                for (int[] dir : possibleDirs) {
+                    if (dir[0] == dr && dir[1] == dc) {
+                        nextDir = dir;
+                        foundSameDir = true;
+                        break;
+                    }
+                }
+                
+                if (!foundSameDir) {
+                    nextDir = possibleDirs.get(random.nextInt(possibleDirs.size()));
+                } else {
+                    nextDir = new int[]{dr, dc}; // Continue in same direction
+                }
+            } else {
+                nextDir = possibleDirs.get(random.nextInt(possibleDirs.size()));
+            }
+            
+            // Update direction
+            dr = nextDir[0];
+            dc = nextDir[1];
+            
+            // Move in the chosen direction
+            r += dr;
+            c += dc;
+            grid[r][c] = 0; // Carve the path
+            
+            // Occasionally add a small side branch to make it more interesting
+            if (i > 2 && random.nextDouble() < 0.2) {
+                addSmallSideBranch(r, c);
+            }
+        }
+        
+        // Optionally connect to another path to create more loops
+        if (random.nextDouble() < 0.3) {
+            connectBranchToNearbyPath(r, c);
+        }
+    }
+    
+    private void addSmallSideBranch(int r, int c) {
+        // Add a small 1-3 cell side branch
         int[] dr = {-1, 0, 1, 0};
         int[] dc = {0, 1, 0, -1};
         
-        int dirToPath = -1;
+        // Shuffle directions
+        List<Integer> directions = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            directions.add(i);
+        }
+        Collections.shuffle(directions, random);
+        
+        // Try each direction
+        for (int dirIndex : directions) {
+            int newR = r + dr[dirIndex];
+            int newC = c + dc[dirIndex];
+            
+            // Check if we can add a side branch
+            if (isInBounds(newR, newC) && grid[newR][newC] == 1) {
+                // Check if this creates an unwanted connection
+                boolean createsCrossConnection = false;
+                
+                // Check adjacent cells
+                for (int i = 0; i < 4; i++) {
+                    int adjR = newR + dr[i];
+                    int adjC = newC + dc[i];
+                    
+                    if (isInBounds(adjR, adjC) && grid[adjR][adjC] == 0 &&
+                        !(adjR == r && adjC == c)) { // not the cell we came from
+                        createsCrossConnection = true;
+                        break;
+                    }
+                }
+                
+                if (!createsCrossConnection) {
+                    // Add the side branch
+                    grid[newR][newC] = 0;
+                    
+                    // Occasionally extend it by 1-2 more cells
+                    int extension = random.nextInt(3);
+                    int currR = newR;
+                    int currC = newC;
+                    
+                    for (int i = 0; i < extension; i++) {
+                        int extR = currR + dr[dirIndex];
+                        int extC = currC + dc[dirIndex];
+                        
+                        if (isInBounds(extR, extC) && grid[extR][extC] == 1) {
+                            // Check if this creates an unwanted connection
+                            boolean createsExtensionCrossConnection = false;
+                            
+                            // Check adjacent cells
+                            for (int j = 0; j < 4; j++) {
+                                int adjR = extR + dr[j];
+                                int adjC = extC + dc[j];
+                                
+                                if (isInBounds(adjR, adjC) && grid[adjR][adjC] == 0 &&
+                                    !(adjR == currR && adjC == currC)) { // not cell we came from
+                                    createsExtensionCrossConnection = true;
+                                    break;
+                                }
+                            }
+                            
+                            if (!createsExtensionCrossConnection) {
+                                grid[extR][extC] = 0;
+                                currR = extR;
+                                currC = extC;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    return; // Added a side branch, so we're done
+                }
+            }
+        }
+    }
+    
+    private void connectBranchToNearbyPath(int r, int c) {
+        // Try to connect the end of a branch to a nearby path
+        int[] dr = {-1, 0, 1, 0};
+        int[] dc = {0, 1, 0, -1};
+        
+        // Shuffle directions
+        List<Integer> directions = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            directions.add(i);
+        }
+        Collections.shuffle(directions, random);
+        
+        // Try each direction
+        for (int dirIndex : directions) {
+            int checkR = r + dr[dirIndex];
+            int checkC = c + dc[dirIndex];
+            
+            if (isInBounds(checkR, checkC) && grid[checkR][checkC] == 1) {
+                // Look one more cell ahead to see if there's a path
+                int pathR = checkR + dr[dirIndex];
+                int pathC = checkC + dc[dirIndex];
+                
+                if (isInBounds(pathR, pathC) && grid[pathR][pathC] == 0) {
+                    // Connect to this path
+                    grid[checkR][checkC] = 0;
+                    return;
+                }
+            }
+        }
+    }
+    
+    private void eliminateSingleDeadEnds() {
+        // Find and eliminate very short dead ends
+        boolean madeChanges;
+        do {
+            madeChanges = false;
+            
+            for (int r = 1; r < rows - 1; r++) {
+                for (int c = 1; c < cols - 1; c++) {
+                    if (grid[r][c] == 0) { // If it's a path
+                        // Count adjacent walls
+                        int[] dr = {-1, 0, 1, 0};
+                        int[] dc = {0, 1, 0, -1};
+                        int wallCount = 0;
+                        
+                        for (int i = 0; i < 4; i++) {
+                            int newR = r + dr[i];
+                            int newC = c + dc[i];
+                            
+                            if (isInBounds(newR, newC) && grid[newR][newC] == 1) {
+                                wallCount++;
+                            }
+                        }
+                        
+                        // If it's a dead end with 3 walls (only one path out)
+                        if (wallCount == 3 && 
+                           !(r == startRow && c == startCol) && // not the start
+                           !(r == endRow && c == endCol)) {     // not the end
+                           
+                            // Check if it's not part of a longer branch
+                            boolean isIsolatedCell = true;
+                            
+                            // Find the one direction that's not a wall
+                            for (int i = 0; i < 4; i++) {
+                                int newR = r + dr[i];
+                                int newC = c + dc[i];
+                                
+                                if (isInBounds(newR, newC) && grid[newR][newC] == 0) {
+                                    // Check if this cell also has multiple paths out
+                                    int adjWallCount = 0;
+                                    
+                                    for (int j = 0; j < 4; j++) {
+                                        int adjR = newR + dr[j];
+                                        int adjC = newC + dc[j];
+                                        
+                                        if (isInBounds(adjR, adjC) && grid[adjR][adjC] == 1) {
+                                            adjWallCount++;
+                                        }
+                                    }
+                                    
+                                    // If this cell has 2 or fewer walls, it's a junction
+                                    // (meaning our dead-end cell is part of a path)
+                                    if (adjWallCount <= 2) {
+                                        isIsolatedCell = false;
+                                    }
+                                }
+                            }
+                            
+                            if (isIsolatedCell) {
+                                // Convert to a wall or extend it
+                                if (random.nextDouble() < 0.2) {
+                                    // 20% chance to extend instead of remove
+                                    extendDeadEnd(r, c);
+                                } else {
+                                    grid[r][c] = 1; // Convert to wall
+                                    madeChanges = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } while (madeChanges);
+    }
+    
+    private void extendDeadEnd(int r, int c) {
+        // Find the one open direction
+        int[] dr = {-1, 0, 1, 0};
+        int[] dc = {0, 1, 0, -1};
+        
         for (int i = 0; i < 4; i++) {
             int newR = r + dr[i];
             int newC = c + dc[i];
             
             if (isInBounds(newR, newC) && grid[newR][newC] == 0) {
-                dirToPath = i;
-                break;
-            }
-        }
-        
-        if (dirToPath != -1) {
-            // Get the opposite direction to grow the dead end
-            int oppositeDir = (dirToPath + 2) % 4;
-            
-            // Start carving the dead end
-            grid[r][c] = 0; // Convert starting wall to path
-            
-            // Try to carve the specified length
-            for (int i = 0; i < length; i++) {
-                int newR = r + dr[oppositeDir];
-                int newC = c + dc[oppositeDir];
+                // Go in the opposite direction
+                int oppDir = (i + 2) % 4;
+                int extR = r + dr[oppDir];
+                int extC = c + dc[oppDir];
                 
-                // Check if we can continue in this direction
-                if (isInBounds(newR, newC) && grid[newR][newC] == 1 && 
-                    hasAtLeastWalls(newR, newC, 3)) {
+                // If there's a wall we can convert
+                if (isInBounds(extR, extC) && grid[extR][extC] == 1) {
+                    grid[extR][extC] = 0; // Make it a path
                     
-                    grid[newR][newC] = 0; // Convert to path
-                    r = newR;
-                    c = newC;
-                } else {
-                    break; // Stop if we can't continue
+                    // Extend further with diminishing probability
+                    int currR = extR;
+                    int currC = extC;
+                    
+                    while (random.nextDouble() < 0.5) {
+                        int nextR = currR + dr[oppDir];
+                        int nextC = currC + dc[oppDir];
+                        
+                        if (isInBounds(nextR, nextC) && grid[nextR][nextC] == 1) {
+                            grid[nextR][nextC] = 0;
+                            currR = nextR;
+                            currC = nextC;
+                        } else {
+                            break;
+                        }
+                    }
                 }
+                
+                break; // Found the open direction, done
             }
         }
     }
     
     private boolean isInBounds(int r, int c) {
         return r > 0 && r < rows - 1 && c > 0 && c < cols - 1;
-    }
-    
-    private boolean hasAtLeastWalls(int r, int c, int minWalls) {
-        int[] dr = {-1, 0, 1, 0};
-        int[] dc = {0, 1, 0, -1};
-        
-        int wallCount = 0;
-        
-        for (int i = 0; i < 4; i++) {
-            int newR = r + dr[i];
-            int newC = c + dc[i];
-            
-            if (isInBounds(newR, newC) && grid[newR][newC] == 1) {
-                wallCount++;
-            }
-        }
-        
-        return wallCount >= minWalls;
     }
 
     private void placeGoal() {
