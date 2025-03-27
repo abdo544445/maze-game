@@ -6,6 +6,11 @@ import java.util.List;
 import java.util.Random;
 
 public class Maze {
+    // Cell types
+    public enum CellType {
+        PATH, WALL, START, END
+    }
+    
     // 0 = Path, 1 = Wall, 2 = Goal (used in console output only)
     private int[][] grid;
     private final int rows;
@@ -125,12 +130,40 @@ public class Maze {
     public int getCols() {
         return cols;
     }
+    
+    // Aliases for getRows and getCols to maintain compatibility
+    public int getNumRows() {
+        return rows;
+    }
+    
+    public int getNumCols() {
+        return cols;
+    }
 
     public boolean isWall(int row, int col) {
         if (row < 0 || row >= rows || col < 0 || col >= cols) {
             return true; // Treat out of bounds as wall
         }
         return grid[row][col] == 1;
+    }
+    
+    public boolean isValidMove(int row, int col) {
+        if (row < 0 || row >= rows || col < 0 || col >= cols) {
+            return false; // Out of bounds
+        }
+        return grid[row][col] != 1; // Not a wall
+    }
+    
+    public CellType getCellType(int row, int col) {
+        if (row == startRow && col == startCol) {
+            return CellType.START;
+        } else if (row == endRow && col == endCol) {
+            return CellType.END;
+        } else if (grid[row][col] == 1) {
+            return CellType.WALL;
+        } else {
+            return CellType.PATH;
+        }
     }
 
     public int getStartRow() {

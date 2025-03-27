@@ -3,6 +3,9 @@ package com.mazerunner;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.animation.TranslateTransition;
+import javafx.animation.FadeTransition;
+import javafx.animation.ParallelTransition;
+import javafx.animation.SequentialTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -26,6 +29,9 @@ import javafx.util.Duration;
 
 import java.util.Optional;
 import java.io.File;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Random;
 
 public class MazeRunnerApp extends Application {
 
@@ -302,437 +308,313 @@ public class MazeRunnerApp extends Application {
 
     private Pane createGamePane() {
         Pane pane = new Pane();
-        // Calculate pane size based on maze dimensions
-        pane.setPrefSize(maze.getCols() * TILE_SIZE, maze.getRows() * TILE_SIZE);
-        pane.setStyle("-fx-background-color: LIGHTGRAY;"); // Path color
+        pane.setPrefSize(
+            maze.getNumCols() * TILE_SIZE,
+            maze.getNumRows() * TILE_SIZE
+        );
         return pane;
     }
 
     private void drawMaze() {
-        gamePane.getChildren().clear(); // Clear previous drawings
-        for (int row = 0; row < maze.getRows(); row++) {
-            for (int col = 0; col < maze.getCols(); col++) {
-                if (maze.isWall(row, col)) {
-                    Rectangle wall = new Rectangle(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                    wall.setFill(Color.DARKSLATEGRAY); // Wall color
-                    wall.setStroke(Color.BLACK); // Add border
-                    wall.setStrokeWidth(1);
-                    wall.setArcHeight(5); // Rounded corners
-                    wall.setArcWidth(5);
-                    gamePane.getChildren().add(wall);
+        gamePane.getChildren().clear(); // Remove any existing elements
+        
+        // Draw grid of rectangles based on maze.grid values
+        for (int row = 0; row < maze.getNumRows(); row++) {
+            for (int col = 0; col < maze.getNumCols(); col++) {
+                Rectangle rect = new Rectangle(
+                    col * TILE_SIZE,
+                    row * TILE_SIZE,
+                    TILE_SIZE,
+                    TILE_SIZE
+                );
+                
+                // Add rounded corners to all cells for a more polished look
+                rect.setArcHeight(6);
+                rect.setArcWidth(6);
+                
+                // Enhanced color scheme for better visuals
+                switch (maze.getCellType(row, col)) {
+                    case WALL:
+                        rect.setFill(Color.rgb(40, 40, 90)); // Darker blue
+                        rect.setStroke(Color.BLACK);
+                        rect.setStrokeWidth(1.5);
+                        // Add subtle 3D effect
+                        rect.setEffect(new javafx.scene.effect.DropShadow(2, 1, 1, Color.BLACK));
+                        break;
+                    case PATH:
+                        rect.setFill(Color.rgb(240, 240, 255)); // Light blue-white
+                        rect.setStroke(Color.LIGHTGRAY);
+                        rect.setStrokeWidth(0.5);
+                        break;
+                    case START:
+                        rect.setFill(Color.rgb(200, 255, 200)); // Light green
+                        rect.setStroke(Color.GREEN);
+                        rect.setStrokeWidth(1.5);
+                        break;
+                    case END:
+                        rect.setFill(Color.GOLD);
+                        rect.setStroke(Color.ORANGE);
+                        rect.setStrokeWidth(2);
+                        
+                        // Add pulsing animation to goal
+                        Timeline pulse = new Timeline(
+                            new KeyFrame(Duration.ZERO, e -> {
+                                rect.setScaleX(1.0);
+                                rect.setScaleY(1.0);
+                            }),
+                            new KeyFrame(Duration.seconds(0.5), e -> {
+                                rect.setScaleX(1.1);
+                                rect.setScaleY(1.1);
+                            }),
+                            new KeyFrame(Duration.seconds(1.0), e -> {
+                                rect.setScaleX(1.0);
+                                rect.setScaleY(1.0);
+                            })
+                        );
+                        pulse.setCycleCount(Timeline.INDEFINITE);
+                        pulse.play();
+                        
+                        // Add a glow effect to the goal
+                        javafx.scene.effect.Glow glow = new javafx.scene.effect.Glow(0.5);
+                        rect.setEffect(glow);
+                        break;
                 }
-                // Optionally draw goal marker (simple rectangle here)
-                if (row == maze.getEndRow() && col == maze.getEndCol()) {
-                    Rectangle goal = new Rectangle(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                    goal.setFill(Color.GOLD); // Goal color
-                    goal.setStroke(Color.ORANGE); // Add border
-                    goal.setStrokeWidth(2);
-                    goal.setArcHeight(10); // Rounded corners
-                    goal.setArcWidth(10);
-                    
-                    // Add a pulsing animation to the goal
-                    Timeline pulse = new Timeline(
-                        new KeyFrame(Duration.ZERO, e -> {
-                            goal.setScaleX(1.0);
-                            goal.setScaleY(1.0);
-                        }),
-                        new KeyFrame(Duration.seconds(0.5), e -> {
-                            goal.setScaleX(1.1);
-                            goal.setScaleY(1.1);
-                        }),
-                        new KeyFrame(Duration.seconds(1.0), e -> {
-                            goal.setScaleX(1.0);
-                            goal.setScaleY(1.0);
-                        })
-                    );
-                    pulse.setCycleCount(Timeline.INDEFINITE);
-                    pulse.play();
-                    
-                    gamePane.getChildren().add(goal);
-                }
+                
+                gamePane.getChildren().add(rect);
             }
         }
     }
 
     private void drawPlayer() {
-        if (playerMarker == null) {
-            playerMarker = new Circle(TILE_SIZE / 2.5); // Smaller radius for better visibility
-            playerMarker.setFill(Color.DODGERBLUE); // Player color
-            playerMarker.setStroke(Color.BLUE); // Add border
-            playerMarker.setStrokeWidth(2);
-            gamePane.getChildren().add(playerMarker); // Add to pane only once
-
-            // Alternative: Image View
-            // Image playerImage = new Image("file:path/to/player.png");
-            // playerImageView = new ImageView(playerImage);
-            // playerImageView.setFitWidth(TILE_SIZE);
-            // playerImageView.setFitHeight(TILE_SIZE);
-            // gamePane.getChildren().add(playerImageView);
-        }
-
-        // Initial position (without animation)
-        double centerX = player.getCol() * TILE_SIZE + TILE_SIZE / 2.0;
-        double centerY = player.getRow() * TILE_SIZE + TILE_SIZE / 2.0;
-        playerMarker.setCenterX(centerX);
-        playerMarker.setCenterY(centerY);
-
-        // playerImageView.setX(player.getCol() * TILE_SIZE);
-        // playerImageView.setY(player.getRow() * TILE_SIZE);
-    }
-
-    private void movePlayer(int newRow, int newCol) {
-        if (isMoving) {
-            // If already moving, cancel that movement
-            isMoving = false;
-            // Make sure we set the position exactly
-            double directX = player.getCol() * TILE_SIZE + TILE_SIZE / 2.0;
-            double directY = player.getRow() * TILE_SIZE + TILE_SIZE / 2.0;
-            playerMarker.setCenterX(directX);
-            playerMarker.setCenterY(directY);
-            // Reset transforms
-            playerMarker.setTranslateX(0);
-            playerMarker.setTranslateY(0);
-        }
+        // Create player circle (or sprite)
+        playerMarker = new Circle(
+            player.getCol() * TILE_SIZE + TILE_SIZE / 2,
+            player.getRow() * TILE_SIZE + TILE_SIZE / 2,
+            TILE_SIZE / 3,
+            Color.rgb(30, 144, 255) // DodgerBlue - more vibrant
+        );
         
-        // First update player model position
-        player.moveTo(newRow, newCol);
+        // Add a stroke for better visibility
+        playerMarker.setStroke(Color.BLUE);
+        playerMarker.setStrokeWidth(2);
         
-        // Increment move counter
-        movesCount++;
-        movesLabel.setText("Moves: " + movesCount);
+        // Add a glow effect to the player
+        javafx.scene.effect.Glow glow = new javafx.scene.effect.Glow(0.4);
+        playerMarker.setEffect(glow);
         
-        // Calculate target center position
-        double newCenterX = newCol * TILE_SIZE + TILE_SIZE / 2.0;
-        double newCenterY = newRow * TILE_SIZE + TILE_SIZE / 2.0;
+        // Alternative with image
+        /*
+        Image playerImage = new Image("player.png");
+        playerImageView = new ImageView(playerImage);
+        playerImageView.setFitHeight(TILE_SIZE * 0.8);
+        playerImageView.setFitWidth(TILE_SIZE * 0.8);
+        playerImageView.setX(player.getCol() * TILE_SIZE + TILE_SIZE * 0.1);
+        playerImageView.setY(player.getRow() * TILE_SIZE + TILE_SIZE * 0.1);
+        gamePane.getChildren().add(playerImageView);
+        */
         
-        try {
-            isMoving = true;
-            
-            // For visual debugging, change color during movement
-            Color originalColor = (Color) playerMarker.getFill();
-            playerMarker.setFill(Color.LIMEGREEN);
-            
-            // Create animation
-            TranslateTransition transition = new TranslateTransition(Duration.millis(MOVEMENT_DURATION), playerMarker);
-            
-            // Calculate translate values (relative to current position)
-            double translateX = newCenterX - playerMarker.getCenterX();
-            double translateY = newCenterY - playerMarker.getCenterY();
-            
-            transition.setByX(translateX);
-            transition.setByY(translateY);
-            
-            // When animation completes, update actual position and reset translation
-            transition.setOnFinished(e -> {
-                playerMarker.setCenterX(newCenterX);
-                playerMarker.setCenterY(newCenterY);
-                playerMarker.setTranslateX(0);
-                playerMarker.setTranslateY(0);
-                isMoving = false;
-                playerMarker.setFill(originalColor);
-                
-                // Check for win condition after movement completes
-                if (player.getRow() == maze.getEndRow() && player.getCol() == maze.getEndCol()) {
-                    winGame();
-                }
-            });
-            
-            transition.play();
-        } catch (Exception e) {
-            // If animation fails, just move the player directly
-            System.err.println("Animation error: " + e.getMessage());
-            playerMarker.setCenterX(newCenterX);
-            playerMarker.setCenterY(newCenterY);
-            playerMarker.setTranslateX(0);
-            playerMarker.setTranslateY(0);
-            isMoving = false;
-            
-            // Check for win condition
-            if (player.getRow() == maze.getEndRow() && player.getCol() == maze.getEndCol()) {
-                winGame();
-            }
-        }
-    }
-
-    private void setupKeyHandler(Scene scene) {
-        scene.setOnKeyPressed(event -> {
-            // Debug to console
-            System.out.println("Key pressed: " + event.getCode() + 
-                               ", isMoving: " + isMoving + 
-                               ", timer running: " + (gameTimer != null && gameTimer.isRunning()));
-            
-            // Add a visual indicator for key presses
-            playerMarker.setStroke(Color.RED);
-            
-            // Reset color after a brief delay
-            Timeline revertStroke = new Timeline(
-                new KeyFrame(Duration.millis(200), e -> playerMarker.setStroke(Color.BLUE))
-            );
-            revertStroke.play();
-            
-            KeyCode code = event.getCode();
-            
-            // Handle special keys regardless of game state
-            if (code == KeyCode.SPACE) {
-                // Toggle timer state
-                if (gameTimer != null) {
-                    if (gameTimer.isRunning()) {
-                        gameTimer.pause();
-                        playerMarker.setOpacity(0.5); // Visual indicator of pause
-                        movesLabel.setText("Game PAUSED - press SPACE to resume");
-                    } else {
-                        gameTimer.resume();
-                        playerMarker.setOpacity(1.0);
-                        movesLabel.setText("Moves: " + movesCount);
-                    }
-                } else {
-                    startGame();
-                }
-                return;
-            }
-            
-            if (code == KeyCode.ESCAPE) {
-                // Return to main menu
-                if (gameTimer != null) {
-                    gameTimer.stop();
-                }
-                primaryStage.setScene(menuScene);
-                return;
-            }
-            
-            // Skip movement if timer isn't running
-            boolean timerActive = (gameTimer != null && gameTimer.isRunning());
-            if (!timerActive) {
-                playerMarker.setOpacity(0.5); // Visual indicator
-                playerMarker.setStroke(Color.ORANGE);
-                movesLabel.setText("Game paused - press SPACE to start");
-                return;
-            }
-            
-            // Check if player is currently in the middle of an animation
-            if (isMoving) {
-                movesLabel.setText("Wait for move to complete!");
-                return;
-            }
-
-            int currentRow = player.getRow();
-            int currentCol = player.getCol();
-            int nextRow = currentRow;
-            int nextCol = currentCol;
-
-            // Convert key code to direction, supporting both arrow keys and WASD
-            switch (code) {
-                case UP:
-                case W:
-                    nextRow--; 
-                    break;
-                case DOWN:
-                case S:
-                    nextRow++; 
-                    break;
-                case LEFT:
-                case A:
-                    nextCol--; 
-                    break;
-                case RIGHT:
-                case D:
-                    nextCol++; 
-                    break;
-                default: 
-                    return; // Ignore other non-special keys
-            }
-
-            // Check boundaries and walls
-            if (nextRow >= 0 && nextRow < maze.getRows() &&
-                nextCol >= 0 && nextCol < maze.getCols() &&
-                !maze.isWall(nextRow, nextCol))
-            {
-                movePlayer(nextRow, nextCol);
-                // Visual feedback for successful movement
-                playerMarker.setOpacity(1.0); // Ensure full opacity
-                // playSound("file:path/to/move.wav"); // Play move sound
-            } else {
-                // Optional: Play wall hit sound
-                // playSound("file:path/to/bonk.wav");
-                
-                // Visual feedback for hitting a wall
-                playerMarker.setFill(Color.RED);
-                Timeline revertColor = new Timeline(
-                    new KeyFrame(Duration.millis(200), e -> playerMarker.setFill(Color.DODGERBLUE))
-                );
-                revertColor.play();
-            }
-        });
+        gamePane.getChildren().add(playerMarker);
     }
 
     private void startGame() {
-        // Clear any movement state
-        isMoving = false;
-        
-        // Show instructions on the screen
-        Label instructions = new Label(
-            "Use ARROW KEYS or WASD to move\n" +
-            "SPACE to pause/resume\n" +
-            "ESC to return to menu"
-        );
-        instructions.setFont(Font.font("Arial", 16));
-        instructions.setTextFill(Color.BLACK);
-        instructions.setBackground(new Background(new BackgroundFill(
-            Color.rgb(255, 255, 255, 0.7), new CornerRadii(5), null)));
-        instructions.setPadding(new Insets(5));
-        instructions.setTranslateX(10);
-        instructions.setTranslateY(10);
-        gamePane.getChildren().add(instructions);
-        
-        // Make instructions disappear after 5 seconds
-        Timeline hideInstructions = new Timeline(
-            new KeyFrame(Duration.seconds(5), e -> gamePane.getChildren().remove(instructions))
-        );
-        hideInstructions.play();
-        
-        // Make sure player is visible
-        playerMarker.setOpacity(1.0);
-        
-        // playBackgroundMusic("file:path/to/music.mp3");
-        gameTimer = new GameTimer(timerLabel);
+        // Initialize and start the game timer
+        if (gameTimer == null) {
+            gameTimer = new GameTimer(timerLabel);
+        } else {
+            gameTimer.stop();
+        }
         gameTimer.start();
         
-        // Debug output
-        System.out.println("Game started, timer: " + (gameTimer != null ? gameTimer.getStatus() : "null"));
+        // Show instructions for first-time players
+        showInstructions();
+    }
+    
+    private void showInstructions() {
+        // Add a temporary instruction label
+        Label instructionLabel = new Label("Use ARROW KEYS or WASD to move the player.");
+        instructionLabel.setFont(Font.font("Arial", 14));
+        instructionLabel.setTextFill(Color.DARKBLUE);
+        instructionLabel.setBackground(new Background(new BackgroundFill(
+            Color.LIGHTYELLOW, new CornerRadii(5), Insets.EMPTY
+        )));
+        instructionLabel.setPadding(new Insets(10));
+        instructionLabel.setTranslateX(10);
+        instructionLabel.setTranslateY(10);
+        instructionLabel.setOpacity(0.9);
+        
+        gamePane.getChildren().add(instructionLabel);
+        
+        // Fade out after 5 seconds
+        Timeline fadeOut = new Timeline(
+            new KeyFrame(Duration.seconds(5), e -> {
+                gamePane.getChildren().remove(instructionLabel);
+            })
+        );
+        fadeOut.play();
     }
 
     private void resetGame() {
-        // Cancel any ongoing movement
-        isMoving = false;
+        // Reset player to start position
+        player.setPosition(maze.getStartRow(), maze.getStartCol());
         
-        player.moveTo(maze.getStartRow(), maze.getStartCol());
-        drawMaze(); // Redraw maze in case goal needs refreshing
-        drawPlayer();
-        movesCount = 0;
-        movesLabel.setText("Moves: 0");
-        
+        // Reset timer and move counter
         if (gameTimer != null) {
-            gameTimer.reset();
+            gameTimer.stop();
             gameTimer.start();
-        } else {
-            startGame();
         }
-        // Make sure game pane is displayed if we were on score screen
-        rootLayout.setCenter(gamePane);
-    }
-    
-    private void nextLevel() {
-        // Advance to next level with same difficulty
-        currentLevel++;
-        difficultyLabel.setText("Level " + currentLevel + " - " + currentDifficulty.name());
         
-        // Generate new maze 
-        maze = new Maze(currentDifficulty);
-        player = new Player(maze.getStartRow(), maze.getStartCol());
-        
-        // Reset counters
         movesCount = 0;
         movesLabel.setText("Moves: 0");
         
-        // Recreate the game pane for new maze dimensions
-        gamePane = createGamePane();
-        rootLayout.setCenter(gamePane);
-        
+        // Redraw maze and player
         drawMaze();
         drawPlayer();
-        
-        if (gameTimer != null) {
-            gameTimer.reset();
-            gameTimer.start();
-        } else {
-            startGame();
-        }
     }
 
-    private void winGame() {
-        gameTimer.stop();
-        // playSound("file:path/to/win.wav");
-        double timeTaken = gameTimer.getElapsedTimeSeconds();
-
-        // First, store all values needed for after celebration completes
-        final int finalLevel = currentLevel;
-        final String difficultyName = currentDifficulty.name();
-        final int finalMoves = movesCount;
-        final double finalTime = timeTaken;
-
-        // Celebration animation
-        Timeline celebrate = new Timeline(
-            new KeyFrame(Duration.ZERO, e -> playerMarker.setFill(Color.GOLD)),
-            new KeyFrame(Duration.millis(200), e -> playerMarker.setFill(Color.GREEN)),
-            new KeyFrame(Duration.millis(400), e -> playerMarker.setFill(Color.BLUE)),
-            new KeyFrame(Duration.millis(600), e -> playerMarker.setFill(Color.RED)),
-            new KeyFrame(Duration.millis(800), e -> playerMarker.setFill(Color.PURPLE))
-        );
-        celebrate.setCycleCount(3);
-        celebrate.setOnFinished(e -> {
-            // Make sure any animation has completely finished before showing dialog
-            Platform.runLater(() -> {
-                // Ask if player wants to continue to next level or submit score
-                Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-                alert.setTitle("Level Complete!");
-                alert.setHeaderText("You completed Level " + finalLevel + " in " + 
-                    String.format("%.2f", finalTime) + " seconds with " + finalMoves + " moves!");
-                alert.setContentText("Would you like to continue to the next level?");
+    private void setupKeyHandler(Scene scene) {
+        scene.setOnKeyPressed(e -> {
+            // Debug info on key press
+            System.out.println("Key pressed: " + e.getCode() + 
+                " - Timer running: " + (gameTimer != null && gameTimer.isRunning()) + 
+                " - Player moving: " + isMoving);
                 
-                ButtonType nextLevelButton = new ButtonType("Next Level");
-                ButtonType submitScoreButton = new ButtonType("Submit Score");
-                ButtonType cancelButton = new ButtonType("Main Menu", ButtonBar.ButtonData.CANCEL_CLOSE);
-                
-                alert.getButtonTypes().setAll(nextLevelButton, submitScoreButton, cancelButton);
-                
-                alert.setOnCloseRequest(event -> {
-                    // Handle default close (x button) as cancel
-                    primaryStage.setScene(menuScene);
-                });
-                
-                // Use show and handle the button press with a listener instead of blocking with showAndWait
-                alert.show();
-                
-                alert.resultProperty().addListener((observable, oldValue, newValue) -> {
-                    if (newValue == nextLevelButton) {
-                        nextLevel();
-                    } else if (newValue == submitScoreButton) {
-                        showSubmitScoreDialog(finalLevel, difficultyName, finalTime, finalMoves);
-                    } else {
-                        // Return to main menu (for any other result including close button)
-                        primaryStage.setScene(menuScene);
-                    }
-                });
-            });
+            // Check if timer is active
+            if (gameTimer == null || !gameTimer.isRunning()) {
+                // If game not started/running, show a helpful message
+                showErrorLabel("Press Reset to start a new game");
+                return;
+            }
+            
+            // Don't process moves if player is already moving
+            if (isMoving) {
+                showErrorLabel("Wait for current move to complete");
+                return;
+            }
+            
+            int newRow = player.getRow();
+            int newCol = player.getCol();
+            
+            boolean validKey = true;
+            
+            // Determine new position based on key
+            if (e.getCode() == KeyCode.UP || e.getCode() == KeyCode.W) {
+                newRow--;
+            } else if (e.getCode() == KeyCode.DOWN || e.getCode() == KeyCode.S) {
+                newRow++;
+            } else if (e.getCode() == KeyCode.LEFT || e.getCode() == KeyCode.A) {
+                newCol--;
+            } else if (e.getCode() == KeyCode.RIGHT || e.getCode() == KeyCode.D) {
+                newCol++;
+            } else {
+                validKey = false;
+            }
+            
+            if (validKey) {
+                // Check if move is valid (not a wall)
+                if (maze.isValidMove(newRow, newCol)) {
+                    // Update move counter
+                    movesCount++;
+                    movesLabel.setText("Moves: " + movesCount);
+                    
+                    // Move player
+                    movePlayer(newRow, newCol);
+                } else {
+                    // Show blocked message
+                    showErrorLabel("Path blocked");
+                }
+            }
         });
-        celebrate.play();
     }
     
-    private void showSubmitScoreDialog(int level, String difficulty, double time, int moves) {
-        // Submit score dialog
-        TextInputDialog dialog = new TextInputDialog("Player");
-        dialog.setTitle("Submit Score");
-        dialog.setHeaderText("Level " + level + " - " + difficulty + 
-            "\nTime: " + String.format("%.2f", time) + " seconds" +
-            "\nMoves: " + moves);
-        dialog.setContentText("Enter your name:");
+    private void showErrorLabel(String message) {
+        // Create temporary error message with improved styling
+        Label errorLabel = new Label(message);
+        errorLabel.setFont(Font.font("Arial", javafx.scene.text.FontWeight.BOLD, 14));
+        errorLabel.setTextFill(Color.WHITE);
+        errorLabel.setBackground(new Background(new BackgroundFill(
+            Color.rgb(220, 20, 60, 0.8), // Semi-transparent red
+            new CornerRadii(10), // Rounded corners
+            Insets.EMPTY
+        )));
+        errorLabel.setPadding(new Insets(8, 15, 8, 15));
         
-        // Again, use a non-blocking approach for this dialog
-        dialog.setOnCloseRequest(event -> {
-            // If dialog is closed without submitting
-            showHighScores();
+        // Center the label
+        double labelWidth = 200;
+        errorLabel.setPrefWidth(labelWidth);
+        errorLabel.setAlignment(Pos.CENTER);
+        errorLabel.setTranslateX(gamePane.getWidth() / 2 - labelWidth / 2);
+        errorLabel.setTranslateY(gamePane.getHeight() / 2 - 20);
+        
+        // Add a slight drop shadow
+        errorLabel.setEffect(new javafx.scene.effect.DropShadow(10, Color.BLACK));
+        
+        gamePane.getChildren().add(errorLabel);
+        
+        // Fade out with a more sophisticated animation
+        FadeTransition fadeOut = new FadeTransition(Duration.seconds(1), errorLabel);
+        fadeOut.setFromValue(1.0);
+        fadeOut.setToValue(0.0);
+        fadeOut.setOnFinished(e -> gamePane.getChildren().remove(errorLabel));
+        fadeOut.play();
+    }
+
+    private void movePlayer(int newRow, int newCol) {
+        isMoving = true;
+        
+        // Store original color for reset after movement
+        Color originalColor = (Color) playerMarker.getFill();
+        
+        // Change color during movement for visual feedback
+        playerMarker.setFill(Color.rgb(50, 205, 50)); // LimeGreen
+        
+        // Calculate pixel coordinates
+        double startX = playerMarker.getCenterX();
+        double startY = playerMarker.getCenterY();
+        double endX = newCol * TILE_SIZE + TILE_SIZE / 2;
+        double endY = newRow * TILE_SIZE + TILE_SIZE / 2;
+        
+        // Create animation with smoother interpolation
+        TranslateTransition transition = new TranslateTransition(Duration.millis(MOVEMENT_DURATION), playerMarker);
+        transition.setFromX(0);
+        transition.setFromY(0);
+        transition.setToX(endX - startX);
+        transition.setToY(endY - startY);
+        transition.setInterpolator(javafx.animation.Interpolator.EASE_OUT); // Smoother movement
+        
+        transition.setOnFinished(e -> {
+            // Update player position in model
+            player.setPosition(newRow, newCol);
+            
+            // Reset marker position (removes translation)
+            playerMarker.setTranslateX(0);
+            playerMarker.setTranslateY(0);
+            playerMarker.setCenterX(endX);
+            playerMarker.setCenterY(endY);
+            
+            // Reset to original color
+            playerMarker.setFill(originalColor);
+            
+            // Allow movement again
+            isMoving = false;
+            
+            // Check if player has won
+            checkWin();
         });
         
-        dialog.show();
-        
-        dialog.resultProperty().addListener((observable, oldValue, newValue) -> {
-            if (newValue != null && !newValue.trim().isEmpty()) {
-                // Add difficulty and level info to score
-                String scoreInfo = difficulty + "_L" + level;
-                networkClient.submitScore(newValue + " [" + scoreInfo + "]", time);
-            }
-            showHighScores();
-        });
+        try {
+            transition.play();
+        } catch (Exception e) {
+            // Fallback in case animation fails
+            System.err.println("Animation error: " + e.getMessage());
+            
+            // Direct movement without animation
+            playerMarker.setCenterX(endX);
+            playerMarker.setCenterY(endY);
+            player.setPosition(newRow, newCol);
+            playerMarker.setFill(originalColor);
+            isMoving = false;
+            checkWin();
+        }
     }
 
     private void showHighScores() {
@@ -765,7 +647,6 @@ public class MazeRunnerApp extends Application {
                 if (name.isEmpty()) name = "Player";
                 
                 double time = gameTimer.getElapsedTime();
-                String scoreInfo = currentDifficulty.name() + " Level " + currentLevel;
                 
                 // Submit score with all required parameters
                 networkClient.submitScore(name, time, currentDifficulty.name(), currentLevel, movesCount);
@@ -826,6 +707,141 @@ public class MazeRunnerApp extends Application {
         dialog.getDialogPane().getButtonTypes().add(closeButton);
         
         dialog.showAndWait();
+    }
+
+    /**
+     * Check if player has reached the end of the maze
+     */
+    private void checkWin() {
+        if (player.getRow() == maze.getEndRow() && player.getCol() == maze.getEndCol()) {
+            // Play victory animation before showing dialog
+            playWinAnimation(() -> {
+                double time = gameTimer.getElapsedTime();
+                showFinishDialog(time);
+            });
+        }
+    }
+    
+    /**
+     * Show dialog when player finishes the level
+     * @param time the time taken to complete the level
+     */
+    private void showFinishDialog(double time) {
+        gameTimer.stop();
+        
+        // Prompt for name and show options for next action
+        TextInputDialog nameDialog = new TextInputDialog("Player");
+        nameDialog.setTitle("Level Complete!");
+        nameDialog.setHeaderText("You completed level " + currentLevel + " in " + String.format("%.1f", time) + " seconds!");
+        nameDialog.setContentText("Enter your name to save your score:");
+        
+        Optional<String> result = nameDialog.showAndWait();
+        result.ifPresent(name -> {
+            // Submit score to server with all details
+            networkClient.submitScore(name, time, currentDifficulty.name(), currentLevel, movesCount);
+            
+            // Show dialog with options
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+            alert.setTitle("Level Complete!");
+            alert.setHeaderText("What would you like to do next?");
+            alert.setContentText("Continue to the next level or return to the main menu?");
+            
+            ButtonType nextLevelButton = new ButtonType("Next Level");
+            ButtonType viewScoresButton = new ButtonType("View High Scores");
+            ButtonType menuButton = new ButtonType("Main Menu");
+            
+            alert.getButtonTypes().setAll(nextLevelButton, viewScoresButton, menuButton);
+            
+            Optional<ButtonType> choice = alert.showAndWait();
+            if (choice.isPresent()) {
+                if (choice.get() == nextLevelButton) {
+                    // Start next level
+                    currentLevel++;
+                    maze = new Maze(currentDifficulty);
+                    player = new Player(maze.getStartRow(), maze.getStartCol());
+                    movesCount = 0;
+                    drawMaze();
+                    drawPlayer();
+                    difficultyLabel.setText("Level " + currentLevel + " - " + currentDifficulty.name());
+                    movesLabel.setText("Moves: 0");
+                    startGame();
+                } else if (choice.get() == viewScoresButton) {
+                    showHighScores();
+                } else {
+                    // Return to main menu
+                    primaryStage.setScene(menuScene);
+                }
+            }
+        });
+    }
+
+    private void playWinAnimation(Runnable onFinished) {
+        // Stop the timer during the animation
+        if (gameTimer != null) {
+            gameTimer.pause();
+        }
+        
+        // Create victory particles
+        List<Circle> particles = new ArrayList<>();
+        Random random = new Random();
+        
+        for (int i = 0; i < 50; i++) {
+            Circle particle = new Circle(3);
+            particle.setFill(Color.color(
+                random.nextDouble(), 
+                random.nextDouble(), 
+                random.nextDouble()
+            ));
+            particle.setCenterX(playerMarker.getCenterX());
+            particle.setCenterY(playerMarker.getCenterY());
+            particles.add(particle);
+            gamePane.getChildren().add(particle);
+        }
+        
+        // Animate player
+        Timeline playerAnimation = new Timeline(
+            new KeyFrame(Duration.ZERO, e -> playerMarker.setFill(Color.GOLD)),
+            new KeyFrame(Duration.millis(200), e -> playerMarker.setFill(Color.GREEN)),
+            new KeyFrame(Duration.millis(400), e -> playerMarker.setFill(Color.BLUE)),
+            new KeyFrame(Duration.millis(600), e -> playerMarker.setFill(Color.PURPLE)),
+            new KeyFrame(Duration.millis(800), e -> playerMarker.setFill(Color.RED))
+        );
+        playerAnimation.setCycleCount(3);
+        
+        // Animate particles
+        List<TranslateTransition> particleAnimations = new ArrayList<>();
+        for (Circle particle : particles) {
+            TranslateTransition tt = new TranslateTransition(
+                Duration.millis(1000 + random.nextInt(1000)), 
+                particle
+            );
+            tt.setByX((random.nextDouble() * 2 - 1) * TILE_SIZE * 5);
+            tt.setByY((random.nextDouble() * 2 - 1) * TILE_SIZE * 5);
+            tt.setCycleCount(1);
+            particleAnimations.add(tt);
+        }
+        
+        // Play particle animations
+        ParallelTransition parallelTransition = new ParallelTransition();
+        parallelTransition.getChildren().addAll(particleAnimations);
+        
+        // Play all animations together
+        SequentialTransition sequence = new SequentialTransition(
+            playerAnimation,
+            parallelTransition
+        );
+        
+        sequence.setOnFinished(e -> {
+            // Clean up particles
+            gamePane.getChildren().removeAll(particles);
+            
+            // Call finish handler
+            if (onFinished != null) {
+                onFinished.run();
+            }
+        });
+        
+        sequence.play();
     }
 
     @Override

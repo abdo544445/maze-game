@@ -21,4 +21,9 @@ public class Player {
         this.row = newRow;
         this.col = newCol;
     }
+    
+    // Alias for moveTo to maintain compatibility
+    public void setPosition(int newRow, int newCol) {
+        moveTo(newRow, newCol);
+    }
 } 
