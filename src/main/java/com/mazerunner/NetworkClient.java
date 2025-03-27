@@ -15,6 +15,7 @@ import java.net.SocketTimeoutException;
 import java.net.ConnectException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 public class NetworkClient {
     private String serverAddress;
@@ -30,6 +31,24 @@ public class NetworkClient {
     // Allow disabling error dialogs (for testing or when they're not needed)
     public void setShowErrorDialogs(boolean show) {
         this.showErrorDialogs = show;
+    }
+
+    /**
+     * Test if the server is running by attempting to connect
+     * @param callback Consumer<Boolean> called with true if connection succeeds, false otherwise
+     */
+    public void testConnection(Consumer<Boolean> callback) {
+        new Thread(() -> {
+            try (Socket socket = new Socket(serverAddress, serverPort)) {
+                socket.setSoTimeout(CONNECTION_TIMEOUT);
+                // Just open and close the connection to test if it's possible
+                System.out.println("Successfully connected to server at " + serverAddress + ":" + serverPort);
+                callback.accept(true);
+            } catch (Exception e) {
+                System.err.println("Server connection test failed: " + e.getMessage());
+                callback.accept(false);
+            }
+        }).start();
     }
 
     // Submit score in a background thread
