@@ -1,46 +1,51 @@
 package com.mazerunner;
 
+import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.scene.control.Label;
 import javafx.util.Duration;
 
+/**
+ * A timer class for the game
+ */
 public class GameTimer {
     private Timeline timeline;
     private Label timerLabel;
+    private double elapsedTime = 0;
     private long startTimeMillis;
     private long pauseTimeMillis = 0; // Time spent paused
     private long lastPauseStartTime = 0; // When the current pause started
     private boolean running = false;
     private boolean paused = false;
 
-
-    public GameTimer(Label label) {
-        this.timerLabel = label;
+    /**
+     * Create a new game timer
+     * @param timerLabel the label to update with the current time
+     */
+    public GameTimer(Label timerLabel) {
+        this.timerLabel = timerLabel;
+        timeline = new Timeline(
+            new KeyFrame(Duration.millis(100), e -> {
+                elapsedTime += 0.1;
+                updateLabel();
+            })
+        );
+        timeline.setCycleCount(Animation.INDEFINITE);
     }
 
+    /**
+     * Start the timer
+     */
     public void start() {
         startTimeMillis = System.currentTimeMillis();
         pauseTimeMillis = 0; // Reset pause duration
+        elapsedTime = 0;
+        updateLabel();
+        timeline.play();
         running = true;
         paused = false;
-
-        // Timeline updates the label every 100ms
-        timeline = new Timeline(new KeyFrame(Duration.millis(100), event -> {
-            if (running && !paused) {
-                long elapsedMillis = System.currentTimeMillis() - startTimeMillis - pauseTimeMillis;
-                double elapsedSeconds = elapsedMillis / 1000.0;
-                // Update UI on the JavaFX Application Thread
-                Platform.runLater(() -> {
-                    timerLabel.setText(String.format("Time: %.1fs", elapsedSeconds));
-                    // Make timer text green when running to give visual feedback
-                    timerLabel.setTextFill(javafx.scene.paint.Color.DARKGREEN);
-                });
-            }
-        }));
-        timeline.setCycleCount(Timeline.INDEFINITE);
-        timeline.play();
         
         // Visual feedback that timer is running
         if (timerLabel != null) {
@@ -48,10 +53,11 @@ public class GameTimer {
         }
     }
 
+    /**
+     * Stop the timer
+     */
     public void stop() {
-        if (timeline != null) {
-            timeline.stop();
-        }
+        timeline.stop();
         running = false;
         paused = false;
         
@@ -61,32 +67,62 @@ public class GameTimer {
         }
     }
 
-     public void pause() {
-        if (running && !paused) {
-            timeline.pause(); // Pause the timeline animation
-            lastPauseStartTime = System.currentTimeMillis(); // Record when pause started
-            paused = true;
-            
-            // Visual feedback that timer is paused
-            if (timerLabel != null) {
-                timerLabel.setTextFill(javafx.scene.paint.Color.RED);
-            }
+    /**
+     * Pause the timer
+     */
+    public void pause() {
+        timeline.pause();
+        running = false;
+        paused = true;
+        lastPauseStartTime = System.currentTimeMillis(); // Record when pause started
+        
+        // Visual feedback that timer is paused
+        if (timerLabel != null) {
+            timerLabel.setTextFill(javafx.scene.paint.Color.RED);
         }
     }
 
+    /**
+     * Resume the timer
+     */
     public void resume() {
-        if (running && paused) {
-            pauseTimeMillis += (System.currentTimeMillis() - lastPauseStartTime); // Add duration of this pause
-            timeline.play(); // Resume the timeline animation
-            paused = false;
-            
-            // Visual feedback that timer is running again
-            if (timerLabel != null) {
-                timerLabel.setTextFill(javafx.scene.paint.Color.DARKGREEN);
-            }
+        timeline.play();
+        running = true;
+        paused = false;
+        pauseTimeMillis += (System.currentTimeMillis() - lastPauseStartTime); // Add duration of this pause
+        
+        // Visual feedback that timer is running again
+        if (timerLabel != null) {
+            timerLabel.setTextFill(javafx.scene.paint.Color.DARKGREEN);
         }
     }
 
+    /**
+     * Check if the timer is running
+     * @return true if the timer is running
+     */
+    public boolean isRunning() {
+        return running && !paused;
+    }
+
+    /**
+     * Update the timer label
+     */
+    private void updateLabel() {
+        double currentElapsedTime = getElapsedTime();
+        timerLabel.setText(String.format("Time: %.1fs", currentElapsedTime));
+    }
+
+    /**
+     * Get the current elapsed time
+     * @return the elapsed time in seconds
+     */
+    public double getElapsedTime() {
+        if (startTimeMillis == 0) return 0.0; // Timer never started
+        long currentPauseDuration = paused ? (System.currentTimeMillis() - lastPauseStartTime) : 0;
+        long elapsedMillis = System.currentTimeMillis() - startTimeMillis - pauseTimeMillis - currentPauseDuration;
+        return elapsedMillis / 1000.0;
+    }
 
     public void reset() {
         stop();
@@ -97,17 +133,6 @@ public class GameTimer {
         // Don't restart here, let resetGame call start()
     }
 
-    public double getElapsedTimeSeconds() {
-        if (startTimeMillis == 0) return 0.0; // Timer never started
-         long currentPauseDuration = paused ? (System.currentTimeMillis() - lastPauseStartTime) : 0;
-        long elapsedMillis = System.currentTimeMillis() - startTimeMillis - pauseTimeMillis - currentPauseDuration;
-        return elapsedMillis / 1000.0;
-    }
-
-     public boolean isRunning() {
-        return running && !paused;
-    }
-    
     // For debugging purposes
     public String getStatus() {
         return "Timer status: running=" + running + ", paused=" + paused;

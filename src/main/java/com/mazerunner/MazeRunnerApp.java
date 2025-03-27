@@ -47,6 +47,11 @@ public class MazeRunnerApp extends Application {
     private int currentLevel = 1;
     private int movesCount = 0;
     private Label movesLabel;
+    
+    // Server management
+    private EmbeddedServer embeddedServer;
+    private Label serverStatusLabel;
+    private Button serverToggleButton;
 
     // --- GUI Elements ---
     private Circle playerMarker;
@@ -58,6 +63,11 @@ public class MazeRunnerApp extends Application {
     @Override
     public void start(Stage stage) {
         primaryStage = stage;
+        
+        // Initialize embedded server
+        embeddedServer = new EmbeddedServer();
+        
+        // Initialize network client
         networkClient = new NetworkClient("127.0.0.1", 12345); // Server running locally on port 12345
 
         createMenuScene();
@@ -70,6 +80,13 @@ public class MazeRunnerApp extends Application {
         primaryStage.setScene(menuScene);
         primaryStage.setResizable(false);
         primaryStage.show();
+        
+        // Setup close handler to stop the server when the game exits
+        primaryStage.setOnCloseRequest(event -> {
+            if (embeddedServer.isRunning()) {
+                embeddedServer.stop();
+            }
+        });
     }
     
     private void createMenuScene() {
@@ -82,6 +99,19 @@ public class MazeRunnerApp extends Application {
         Text titleText = new Text("MAZE RUNNER");
         titleText.setFont(Font.font("Arial", 36));
         titleText.setFill(Color.DARKBLUE);
+        
+        // Server status indicator
+        HBox serverStatusBox = new HBox(10);
+        serverStatusBox.setAlignment(Pos.CENTER);
+        
+        serverStatusLabel = new Label("Server: OFFLINE");
+        serverStatusLabel.setFont(Font.font("Arial", 14));
+        serverStatusLabel.setTextFill(Color.RED);
+        
+        serverToggleButton = new Button("Start Server");
+        serverToggleButton.setOnAction(e -> toggleServer());
+        
+        serverStatusBox.getChildren().addAll(serverStatusLabel, serverToggleButton);
         
         // Difficulty selection
         HBox difficultyBox = new HBox(10);
@@ -114,10 +144,6 @@ public class MazeRunnerApp extends Application {
         highScoresButton.setPrefSize(150, 40);
         highScoresButton.setOnAction(e -> showHighScoresFromMenu());
         
-        Button serverButton = new Button("Start Server");
-        serverButton.setPrefSize(150, 40);
-        serverButton.setOnAction(e -> startHighScoreServer());
-        
         Button exitButton = new Button("Exit");
         exitButton.setPrefSize(150, 40);
         exitButton.setOnAction(e -> Platform.exit());
@@ -131,16 +157,61 @@ public class MazeRunnerApp extends Application {
         instructionsText.setFont(Font.font("Arial", 14));
         
         menuLayout.getChildren().addAll(
-            titleText, 
+            titleText,
+            serverStatusBox,
             difficultyBox,
             startButton,
             highScoresButton,
-            serverButton,
             exitButton,
             instructionsText
         );
         
         menuScene = new Scene(menuLayout, 500, 500);
+    }
+    
+    private void toggleServer() {
+        if (embeddedServer.isRunning()) {
+            // Stop the server
+            embeddedServer.stop();
+            updateServerStatus();
+        } else {
+            // Start the server
+            boolean success = embeddedServer.start();
+            updateServerStatus();
+            
+            if (success) {
+                showServerStartedDialog();
+            } else {
+                showServerErrorDialog();
+            }
+        }
+    }
+    
+    private void updateServerStatus() {
+        boolean isRunning = embeddedServer.isRunning();
+        
+        // Update status label
+        serverStatusLabel.setText("Server: " + (isRunning ? "ONLINE" : "OFFLINE"));
+        serverStatusLabel.setTextFill(isRunning ? Color.DARKGREEN : Color.RED);
+        
+        // Update button text
+        serverToggleButton.setText(isRunning ? "Stop Server" : "Start Server");
+    }
+    
+    private void showServerStartedDialog() {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Server Status");
+        alert.setHeaderText("High Score Server Started");
+        alert.setContentText("The high score server is now running. You can submit and view high scores.");
+        alert.show();
+    }
+    
+    private void showServerErrorDialog() {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setTitle("Server Error");
+        alert.setHeaderText("Could not start server");
+        alert.setContentText("The server could not be started. Another server may already be running on port 12345.");
+        alert.show();
     }
     
     private void startNewGame() {
@@ -168,7 +239,7 @@ public class MazeRunnerApp extends Application {
         BorderPane layout = new BorderPane();
         layout.setStyle("-fx-background-color: #DDDDDD;"); // Use Color class via CSS
 
-        // Top: Title and Timer
+        // Top: Title, Timer, and Server Status
         HBox topBar = new HBox(20);
         topBar.setAlignment(Pos.CENTER);
         topBar.setPadding(new Insets(10));
@@ -176,6 +247,14 @@ public class MazeRunnerApp extends Application {
         Label titleLabel = new Label("Maze Runner");
         titleLabel.setFont(Font.font("Arial", 24)); // Use Font class
         titleLabel.setTextFill(Color.DARKBLUE); // Use Color class
+        
+        // Create new status labels for in-game view
+        Label inGameServerStatus = new Label("Server: " + (embeddedServer.isRunning() ? "ONLINE" : "OFFLINE"));
+        inGameServerStatus.setFont(Font.font("Arial", 14));
+        inGameServerStatus.setTextFill(embeddedServer.isRunning() ? Color.DARKGREEN : Color.RED);
+        
+        // Create reference to this for timer to update
+        serverStatusLabel = inGameServerStatus;
 
         timerLabel = new Label("Time: 0.0s");
         timerLabel.setFont(Font.font("Arial", 16));
@@ -189,7 +268,7 @@ public class MazeRunnerApp extends Application {
         movesLabel.setFont(Font.font("Arial", 16));
         movesLabel.setTextFill(Color.BLACK);
 
-        topBar.getChildren().addAll(titleLabel, difficultyLabel, timerLabel, movesLabel);
+        topBar.getChildren().addAll(titleLabel, difficultyLabel, timerLabel, movesLabel, inGameServerStatus);
         layout.setTop(topBar);
 
         // Bottom: Buttons
@@ -203,8 +282,9 @@ public class MazeRunnerApp extends Application {
         Button scoresButton = new Button("High Scores");
         scoresButton.setOnAction(e -> showHighScores());
         
-        Button serverButton = new Button("Start Server");
-        serverButton.setOnAction(e -> startHighScoreServer());
+        // Update toggle button reference
+        serverToggleButton = new Button(embeddedServer.isRunning() ? "Stop Server" : "Start Server");
+        serverToggleButton.setOnAction(e -> toggleServer());
         
         Button menuButton = new Button("Main Menu");
         menuButton.setOnAction(e -> {
@@ -214,7 +294,7 @@ public class MazeRunnerApp extends Application {
             primaryStage.setScene(menuScene);
         });
 
-        bottomBar.getChildren().addAll(resetButton, scoresButton, serverButton, menuButton);
+        bottomBar.getChildren().addAll(resetButton, scoresButton, serverToggleButton, menuButton);
         layout.setBottom(bottomBar);
 
         return layout;
@@ -656,192 +736,112 @@ public class MazeRunnerApp extends Application {
     }
 
     private void showHighScores() {
-        if (gameTimer != null && gameTimer.isRunning()) {
-            gameTimer.pause(); // Pause timer while viewing scores
-        }
-
-        VBox scorePane = new VBox(10);
-        scorePane.setAlignment(Pos.CENTER);
-        scorePane.setPadding(new Insets(20));
-        scorePane.setStyle("-fx-background-color: #EEEEFF;");
-
-        Label scoreTitle = new Label("High Scores");
-        scoreTitle.setFont(Font.font("Arial", 20));
+        // Similar to showHighScoresFromMenu but add option to submit current score
+        Dialog<String> dialog = new Dialog<>();
+        dialog.setTitle("High Scores");
+        dialog.setHeaderText("Top Players");
+        
+        // Create ListView to display scores
         ListView<String> scoreListView = new ListView<>();
-        scoreListView.setPrefHeight(200);
-
-        Button backButton = new Button("Back to Game");
-        backButton.setOnAction(e -> {
-            rootLayout.setCenter(gamePane); // Switch back to game view
-            if (gameTimer != null && !gameTimer.isRunning()) { // Resume timer if it was paused
-                 // Check if game was already won - don't resume if won
-                if (player.getRow() != maze.getEndRow() || player.getCol() != maze.getEndCol()){
-                    gameTimer.resume();
-                }
-            }
-        });
-
-        scorePane.getChildren().addAll(scoreTitle, scoreListView, backButton);
-
-        // Replace gamePane with scorePane temporarily
-        rootLayout.setCenter(scorePane);
-
-        // Fetch scores using network client (runs on background thread)
+        scoreListView.setPrefSize(400, 400);
+        
+        // Load scores from server
         networkClient.getHighScores(scoreListView);
+        
+        // Add controls to submit score if game is in progress
+        VBox content = new VBox(10);
+        
+        if (gameTimer != null && gameTimer.isRunning()) {
+            HBox submitBox = new HBox(10);
+            Label nameLabel = new Label("Your Name:");
+            TextField nameField = new TextField("Player");
+            Button submitButton = new Button("Submit Current Score");
+            
+            submitBox.getChildren().addAll(nameLabel, nameField, submitButton);
+            
+            // When submit button is clicked
+            submitButton.setOnAction(e -> {
+                String name = nameField.getText().trim();
+                if (name.isEmpty()) name = "Player";
+                
+                double time = gameTimer.getElapsedTime();
+                String scoreInfo = currentDifficulty.name() + " Level " + currentLevel;
+                
+                // Submit score with all required parameters
+                networkClient.submitScore(name, time, currentDifficulty.name(), currentLevel, movesCount);
+                
+                // Refresh the list
+                networkClient.getHighScores(scoreListView);
+            });
+            
+            content.getChildren().add(submitBox);
+        }
+        
+        // Add server status information
+        Label serverStatusInfo = new Label(embeddedServer.isRunning() ? 
+            "Server status: ONLINE" : 
+            "Server status: OFFLINE - Start the server to view scores");
+        serverStatusInfo.setTextFill(embeddedServer.isRunning() ? javafx.scene.paint.Color.GREEN : javafx.scene.paint.Color.RED);
+        
+        content.getChildren().addAll(scoreListView, serverStatusInfo);
+        dialog.getDialogPane().setContent(content);
+        
+        // Add buttons
+        ButtonType closeButton = new ButtonType("Close", ButtonBar.ButtonData.CANCEL_CLOSE);
+        dialog.getDialogPane().getButtonTypes().add(closeButton);
+        
+        dialog.showAndWait();
     }
     
     private void showHighScoresFromMenu() {
-        VBox scorePane = new VBox(10);
-        scorePane.setAlignment(Pos.CENTER);
-        scorePane.setPadding(new Insets(20));
-        scorePane.setStyle("-fx-background-color: #EEEEFF;");
-
-        Label scoreTitle = new Label("High Scores");
-        scoreTitle.setFont(Font.font("Arial", 20));
-        ListView<String> scoreListView = new ListView<>();
-        scoreListView.setPrefHeight(300);
-
-        Button backButton = new Button("Back to Menu");
-        backButton.setOnAction(e -> primaryStage.setScene(menuScene));
-
-        scorePane.getChildren().addAll(scoreTitle, scoreListView, backButton);
-
-        Scene scoreScene = new Scene(scorePane, 400, 500);
-        primaryStage.setScene(scoreScene);
-
-        // Fetch scores using network client (runs on background thread)
-        networkClient.getHighScores(scoreListView);
-    }
-
-    private void startHighScoreServer() {
-        // Show a dialog explaining the server will start in a new window
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle("Starting High Score Server");
-        alert.setHeaderText("Starting Server in New Terminal");
-        alert.setContentText("The High Score Server will be started in a new terminal window. " +
-                            "Keep that window open to maintain the server connection.");
-        alert.show();
+        // Create a simple dialog with a ListView
+        Dialog<String> dialog = new Dialog<>();
+        dialog.setTitle("High Scores");
+        dialog.setHeaderText("Top Players");
         
-        // Start the server in a new terminal window
-        try {
-            String javaHome = System.getProperty("java.home");
-            String javaBin = javaHome + File.separator + "bin" + File.separator + "java";
-            String classpath = System.getProperty("java.class.path");
-            String className = "com.mazerunner.HighScoreServer";
-            
-            // Command to open a new terminal and run the server
-            ProcessBuilder pb;
-            if (System.getProperty("os.name").toLowerCase().contains("win")) {
-                // Windows
-                pb = new ProcessBuilder("cmd", "/c", "start", "cmd", "/k", 
-                    "java -cp " + classpath + " " + className);
-            } else {
-                // Linux/Mac - try various terminal emulators
-                try {
-                    pb = new ProcessBuilder("gnome-terminal", "--", "java", "-cp", 
-                        classpath, className);
-                    pb.start();
-                    return;
-                } catch (Exception e1) {
-                    try {
-                        pb = new ProcessBuilder("xterm", "-e", "java", "-cp", 
-                            classpath, className);
-                        pb.start();
-                        return;
-                    } catch (Exception e2) {
-                        try {
-                            pb = new ProcessBuilder("konsole", "--", "java", "-cp", 
-                                classpath, className);
-                            pb.start();
-                            return;
-                        } catch (Exception e3) {
-                            // Fall back to just running in background
-                            pb = new ProcessBuilder(javaBin, "-cp", classpath, className);
-                        }
-                    }
-                }
-            }
-            
-            Process process = pb.start();
-            
-            // Tell the user it started
-            Platform.runLater(() -> {
-                Alert successAlert = new Alert(Alert.AlertType.INFORMATION);
-                successAlert.setTitle("Server Started");
-                successAlert.setHeaderText("High Score Server Running");
-                successAlert.setContentText("The server is now running. You can submit and view high scores.");
-                successAlert.show();
-                
-                // Check connection after a brief delay
-                Timeline checkConnection = new Timeline(
-                    new KeyFrame(Duration.seconds(2), e -> checkServerConnection())
-                );
-                checkConnection.play();
-            });
-        } catch (Exception e) {
-            Platform.runLater(() -> {
-                Alert errorAlert = new Alert(Alert.AlertType.ERROR);
-                errorAlert.setTitle("Server Error");
-                errorAlert.setHeaderText("Could not start server");
-                errorAlert.setContentText("Error: " + e.getMessage() + 
-                    "\n\nTry starting it manually with:\nmvn compile exec:java -Dexec.mainClass=\"com.mazerunner.HighScoreServer\"");
-                errorAlert.show();
-            });
-        }
-    }
-    
-    private void checkServerConnection() {
-        // Just try to get scores to test connection - we won't display anything
-        networkClient.testConnection(success -> {
-            if (success) {
-                Platform.runLater(() -> {
-                    Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                    alert.setTitle("Server Connection");
-                    alert.setHeaderText("Connected to Server");
-                    alert.setContentText("Successfully connected to the High Score Server!");
-                    alert.show();
-                });
-            }
-        });
-    }
-
-    /*
-    // --- Multimedia Placeholders ---
-    private void playBackgroundMusic(String musicFile) {
-        try {
-            Media media = new Media(new File(musicFile).toURI().toString());
-            backgroundMusicPlayer = new MediaPlayer(media);
-            backgroundMusicPlayer.setCycleCount(MediaPlayer.INDEFINITE);
-            backgroundMusicPlayer.play();
-        } catch (Exception e) {
-            System.err.println("Error loading background music: " + e.getMessage());
-        }
-    }
-
-    private void playSound(String soundFile) {
-         try {
-            Media media = new Media(new File(soundFile).toURI().toString());
-            sfxPlayer = new MediaPlayer(media); // Create new player each time for short SFX
-            sfxPlayer.play();
-        } catch (Exception e) {
-            System.err.println("Error loading sound effect: " + e.getMessage());
-        }
+        // Create ListView to display scores
+        ListView<String> scoreListView = new ListView<>();
+        scoreListView.setPrefSize(400, 300);
+        
+        // Load scores from server
+        networkClient.getHighScores(scoreListView);
+        
+        // Add an info label
+        Label infoLabel = new Label("Scores show player name, completion time, level, difficulty, and moves");
+        infoLabel.setWrapText(true);
+        
+        // Add information if server is not running
+        Label serverStatusInfo = new Label(embeddedServer.isRunning() ? 
+            "Server status: ONLINE" : 
+            "Server status: OFFLINE - Start the server to view scores");
+        serverStatusInfo.setTextFill(embeddedServer.isRunning() ? javafx.scene.paint.Color.GREEN : javafx.scene.paint.Color.RED);
+        
+        // Layout
+        VBox content = new VBox(10);
+        content.getChildren().addAll(scoreListView, infoLabel, serverStatusInfo);
+        dialog.getDialogPane().setContent(content);
+        
+        // Add buttons
+        ButtonType closeButton = new ButtonType("Close", ButtonBar.ButtonData.CANCEL_CLOSE);
+        dialog.getDialogPane().getButtonTypes().add(closeButton);
+        
+        dialog.showAndWait();
     }
 
     @Override
     public void stop() {
         // Clean up resources
-        if (backgroundMusicPlayer != null) {
-            backgroundMusicPlayer.stop();
-        }
         if (gameTimer != null) {
             gameTimer.stop();
         }
-        // Potentially close network connections if needed, though client sockets are short-lived
+        
+        // Stop the embedded server if it's running
+        if (embeddedServer != null && embeddedServer.isRunning()) {
+            embeddedServer.stop();
+        }
+        
         System.out.println("Application stopped.");
     }
-    */
-
 
     public static void main(String[] args) {
         launch(args);

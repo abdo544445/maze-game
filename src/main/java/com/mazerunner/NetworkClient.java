@@ -18,14 +18,14 @@ import java.util.List;
 import java.util.function.Consumer;
 
 public class NetworkClient {
-    private String serverAddress;
+    private String serverHost;
     private int serverPort;
     private boolean showErrorDialogs = true;
     private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds timeout
 
-    public NetworkClient(String serverAddress, int serverPort) {
-        this.serverAddress = serverAddress;
-        this.serverPort = serverPort;
+    public NetworkClient(String host, int port) {
+        this.serverHost = host;
+        this.serverPort = port;
     }
     
     // Allow disabling error dialogs (for testing or when they're not needed)
@@ -34,149 +34,130 @@ public class NetworkClient {
     }
 
     /**
-     * Test if the server is running by attempting to connect
-     * @param callback Consumer<Boolean> called with true if connection succeeds, false otherwise
+     * Test connection to the server
+     * @param callback Consumer that receives a boolean indicating success
      */
     public void testConnection(Consumer<Boolean> callback) {
         new Thread(() -> {
-            try (Socket socket = new Socket(serverAddress, serverPort)) {
-                socket.setSoTimeout(CONNECTION_TIMEOUT);
-                // Just open and close the connection to test if it's possible
-                System.out.println("Successfully connected to server at " + serverAddress + ":" + serverPort);
-                callback.accept(true);
-            } catch (Exception e) {
-                System.err.println("Server connection test failed: " + e.getMessage());
-                callback.accept(false);
-            }
-        }).start();
-    }
-
-    // Submit score in a background thread
-    public void submitScore(String name, double time) {
-        new Thread(() -> {
-            try (Socket socket = new Socket(serverAddress, serverPort);
-                 PrintWriter out = new PrintWriter(socket.getOutputStream(), true))
-            {
-                socket.setSoTimeout(CONNECTION_TIMEOUT);
-                // Simple protocol: SUBMIT <name> <time>
-                out.println("SUBMIT " + name + " " + time);
-                System.out.println("Score submitted for " + name);
-
-                // On success, we could optionally show a success message
-                // We'll keep it simple and not show anything for success
-            } catch (ConnectException e) {
-                System.err.println("Client Error (Submit): Server not running: " + e.getMessage());
-                if (showErrorDialogs) {
-                    // Use Platform.runLater with a small delay to avoid animation conflicts
-                    Platform.runLater(() -> 
-                        showOfflineDialog("Score Submission", 
-                            "Your score couldn't be submitted because the high score server isn't running.\n" +
-                            "Score: " + name + " - " + time + "s")
-                    );
+            try (Socket socket = new Socket()) {
+                socket.connect(new java.net.InetSocketAddress(serverHost, serverPort), CONNECTION_TIMEOUT);
+                System.out.println("Successfully connected to server at " + serverHost + ":" + serverPort);
+                if (callback != null) {
+                    Platform.runLater(() -> callback.accept(true));
                 }
             } catch (Exception e) {
-                System.err.println("Client Error (Submit): " + e.getMessage());
-                if (showErrorDialogs) {
-                    Platform.runLater(() -> 
-                        showErrorDialog("Network Error", 
-                            "Could not submit score to server: " + e.getMessage())
-                    );
+                System.err.println("Failed to connect to server: " + e.getMessage());
+                if (callback != null) {
+                    Platform.runLater(() -> callback.accept(false));
                 }
             }
         }).start();
     }
 
-    // Get scores in a background thread, update ListView on UI thread
-    public void getHighScores(ListView<String> scoreListView) {
+    /**
+     * Submit a score to the server
+     * @param playerName The name of the player
+     * @param score The player's score (in seconds)
+     * @param difficulty The difficulty level
+     * @param level The game level 
+     * @param moves The number of moves made
+     */
+    public void submitScore(String playerName, double score, String difficulty, int level, int moves) {
         new Thread(() -> {
-            List<String> scores = new ArrayList<>();
-            try (Socket socket = new Socket(serverAddress, serverPort);
+            try (Socket socket = new Socket(serverHost, serverPort);
                  PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-                 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream())))
-            {
+                 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
+                
                 socket.setSoTimeout(CONNECTION_TIMEOUT);
-                // Simple protocol: GET
-                out.println("GET");
+                
+                // Send the submit command with all score data
+                out.println("SUBMIT " + playerName + " " + score + " " + difficulty + " " + level + " " + moves);
+                
+                // Read the response
+                String response = in.readLine();
+                System.out.println("Server response: " + response);
+                
+                // Show success message on JavaFX thread
+                if (response != null && response.startsWith("SUCCESS")) {
+                    Platform.runLater(() -> {
+                        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                        alert.setTitle("Score Submitted");
+                        alert.setHeaderText("Score Saved Successfully");
+                        alert.setContentText("Your score has been saved to the high scores list.");
+                        alert.show();
+                    });
+                }
+            } catch (SocketTimeoutException e) {
+                showErrorDialog("Connection to server timed out. Is the server running?");
+            } catch (ConnectException e) {
+                showErrorDialog("Could not connect to the high score server. Please start the server first.");
+            } catch (Exception e) {
+                showErrorDialog("Error submitting score: " + e.getMessage());
+            }
+        }).start();
+    }
 
+    /**
+     * Get high scores from the server and populate the ListView
+     * @param scoreListView The ListView to populate with scores
+     */
+    public void getHighScores(ListView<String> scoreListView) {
+        // Clear the list first
+        Platform.runLater(() -> scoreListView.getItems().clear());
+        
+        new Thread(() -> {
+            try (Socket socket = new Socket(serverHost, serverPort);
+                 PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+                 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
+                
+                socket.setSoTimeout(CONNECTION_TIMEOUT);
+                
+                // Send the get scores command
+                out.println("GETSCORES");
+                
+                // Read all responses until an empty line
                 String line;
-                while ((line = in.readLine()) != null && !line.equals("END_SCORES")) { // Server sends END_SCORES marker
+                ArrayList<String> scores = new ArrayList<>();
+                while ((line = in.readLine()) != null && !line.isEmpty()) {
                     scores.add(line);
                 }
-                 System.out.println("Scores received: " + scores.size());
-
-                // Update the ListView on the JavaFX Application Thread
-                Platform.runLater(() -> {
-                    ObservableList<String> items = FXCollections.observableArrayList(scores);
-                    scoreListView.setItems(items);
-                     if (scores.isEmpty()) {
-                        scoreListView.setPlaceholder(new Label("No scores yet."));
-                    }
-                });
-
-            } catch (ConnectException e) {
-                System.err.println("Client Error (Get Scores): Server not running: " + e.getMessage());
                 
-                // Update the ListView with a helpful message
-                Platform.runLater(() -> {
-                    scoreListView.getItems().clear();
-                    scoreListView.setPlaceholder(new Label(
-                        "High Score Server is not running!\n\n" +
-                        "Start the server with:\n" +
-                        "mvn compile exec:java -Dexec.mainClass=\"com.mazerunner.HighScoreServer\""
-                    ));
-                    
-                    // Show a friendlier error only the first time
-                    if (showErrorDialogs) {
-                        showOfflineDialog("High Score Server", 
-                            "The High Score Server isn't running. You can still play the game, but scores won't be saved.");
-                    }
-                });
+                // Update the list view on the JavaFX thread
+                if (!scores.isEmpty()) {
+                    Platform.runLater(() -> {
+                        scoreListView.getItems().addAll(scores);
+                    });
+                } else {
+                    Platform.runLater(() -> {
+                        scoreListView.getItems().add("No high scores yet. Be the first to set a record!");
+                    });
+                }
             } catch (SocketTimeoutException e) {
-                System.err.println("Client Error (Get Scores): Connection timeout: " + e.getMessage());
                 Platform.runLater(() -> {
-                    scoreListView.getItems().clear();
-                    scoreListView.setPlaceholder(new Label("Server connection timed out. Try again later."));
+                    scoreListView.getItems().add("Server connection timed out. Is the server running?");
+                    scoreListView.getItems().add("Hint: Click 'Start Server' to enable high scores.");
+                });
+            } catch (ConnectException e) {
+                Platform.runLater(() -> {
+                    scoreListView.getItems().add("Could not connect to high score server.");
+                    scoreListView.getItems().add("Click 'Start Server' to enable high scores.");
                 });
             } catch (Exception e) {
-                System.err.println("Client Error (Get Scores): " + e.getMessage());
                 Platform.runLater(() -> {
-                    scoreListView.getItems().clear();
-                    scoreListView.setPlaceholder(new Label("Error: " + e.getMessage()));
-                    
-                    if (showErrorDialogs) {
-                        showErrorDialog("Network Error", "Could not fetch scores: " + e.getMessage());
-                    }
+                    scoreListView.getItems().add("Error retrieving scores: " + e.getMessage());
+                    scoreListView.getItems().add("Try restarting the server.");
                 });
             }
         }).start();
     }
     
-    // A less alarming dialog for simply being offline
-    private void showOfflineDialog(String title, String message) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle(title);
-        alert.setHeaderText("Server Offline");
-        alert.setContentText(message);
-        
-        // Prevent dialog conflicts with animations
-        try {
-            alert.show(); // Use show() instead of showAndWait()
-        } catch (Exception e) {
-            System.err.println("Cannot show dialog: " + e.getMessage());
-        }
-    }
-
-    private void showErrorDialog(String title, String message) {
-        Alert alert = new Alert(Alert.AlertType.ERROR);
-        alert.setTitle(title);
-        alert.setHeaderText(null);
-        alert.setContentText(message);
-        
-        // Prevent dialog conflicts with animations
-        try {
-            alert.show(); // Use show() instead of showAndWait()
-        } catch (Exception e) {
-            System.err.println("Cannot show dialog: " + e.getMessage());
-        }
+    private void showErrorDialog(String message) {
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.ERROR);
+            alert.setTitle("Connection Error");
+            alert.setHeaderText("Server Connection Failed");
+            alert.setContentText(message);
+            alert.show();
+        });
     }
 } 
