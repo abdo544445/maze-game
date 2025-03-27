@@ -32,11 +32,20 @@ public class GameTimer {
                 long elapsedMillis = System.currentTimeMillis() - startTimeMillis - pauseTimeMillis;
                 double elapsedSeconds = elapsedMillis / 1000.0;
                 // Update UI on the JavaFX Application Thread
-                Platform.runLater(() -> timerLabel.setText(String.format("Time: %.1fs", elapsedSeconds)));
+                Platform.runLater(() -> {
+                    timerLabel.setText(String.format("Time: %.1fs", elapsedSeconds));
+                    // Make timer text green when running to give visual feedback
+                    timerLabel.setTextFill(javafx.scene.paint.Color.DARKGREEN);
+                });
             }
         }));
         timeline.setCycleCount(Timeline.INDEFINITE);
         timeline.play();
+        
+        // Visual feedback that timer is running
+        if (timerLabel != null) {
+            timerLabel.setTextFill(javafx.scene.paint.Color.DARKGREEN);
+        }
     }
 
     public void stop() {
@@ -45,6 +54,11 @@ public class GameTimer {
         }
         running = false;
         paused = false;
+        
+        // Visual feedback that timer is stopped
+        if (timerLabel != null) {
+            timerLabel.setTextFill(javafx.scene.paint.Color.BLACK);
+        }
     }
 
      public void pause() {
@@ -52,6 +66,11 @@ public class GameTimer {
             timeline.pause(); // Pause the timeline animation
             lastPauseStartTime = System.currentTimeMillis(); // Record when pause started
             paused = true;
+            
+            // Visual feedback that timer is paused
+            if (timerLabel != null) {
+                timerLabel.setTextFill(javafx.scene.paint.Color.RED);
+            }
         }
     }
 
@@ -60,13 +79,21 @@ public class GameTimer {
             pauseTimeMillis += (System.currentTimeMillis() - lastPauseStartTime); // Add duration of this pause
             timeline.play(); // Resume the timeline animation
             paused = false;
+            
+            // Visual feedback that timer is running again
+            if (timerLabel != null) {
+                timerLabel.setTextFill(javafx.scene.paint.Color.DARKGREEN);
+            }
         }
     }
 
 
     public void reset() {
         stop();
-        Platform.runLater(() -> timerLabel.setText("Time: 0.0s"));
+        Platform.runLater(() -> {
+            timerLabel.setText("Time: 0.0s");
+            timerLabel.setTextFill(javafx.scene.paint.Color.BLACK);
+        });
         // Don't restart here, let resetGame call start()
     }
 
@@ -79,5 +106,10 @@ public class GameTimer {
 
      public boolean isRunning() {
         return running && !paused;
+    }
+    
+    // For debugging purposes
+    public String getStatus() {
+        return "Timer status: running=" + running + ", paused=" + paused;
     }
 } 

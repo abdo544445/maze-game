@@ -292,9 +292,18 @@ public class MazeRunnerApp extends Application {
     }
 
     private void movePlayer(int newRow, int newCol) {
-        if (isMoving) return; // Don't allow movement while animation is in progress
-        
-        isMoving = true;
+        if (isMoving) {
+            // If already moving, cancel that movement
+            isMoving = false;
+            // Make sure we set the position exactly
+            double directX = player.getCol() * TILE_SIZE + TILE_SIZE / 2.0;
+            double directY = player.getRow() * TILE_SIZE + TILE_SIZE / 2.0;
+            playerMarker.setCenterX(directX);
+            playerMarker.setCenterY(directY);
+            // Reset transforms
+            playerMarker.setTranslateX(0);
+            playerMarker.setTranslateY(0);
+        }
         
         // First update player model position
         player.moveTo(newRow, newCol);
@@ -303,59 +312,132 @@ public class MazeRunnerApp extends Application {
         movesCount++;
         movesLabel.setText("Moves: " + movesCount);
         
-        // Calculate new center position
+        // Calculate target center position
         double newCenterX = newCol * TILE_SIZE + TILE_SIZE / 2.0;
         double newCenterY = newRow * TILE_SIZE + TILE_SIZE / 2.0;
         
-        // Create animation
-        TranslateTransition transition = new TranslateTransition(Duration.millis(MOVEMENT_DURATION), playerMarker);
-        
-        // Calculate translate values (relative to current position)
-        double translateX = newCenterX - playerMarker.getCenterX();
-        double translateY = newCenterY - playerMarker.getCenterY();
-        
-        transition.setByX(translateX);
-        transition.setByY(translateY);
-        
-        // When animation completes, update actual position and reset translation
-        transition.setOnFinished(e -> {
+        try {
+            isMoving = true;
+            
+            // For visual debugging, change color during movement
+            Color originalColor = (Color) playerMarker.getFill();
+            playerMarker.setFill(Color.LIMEGREEN);
+            
+            // Create animation
+            TranslateTransition transition = new TranslateTransition(Duration.millis(MOVEMENT_DURATION), playerMarker);
+            
+            // Calculate translate values (relative to current position)
+            double translateX = newCenterX - playerMarker.getCenterX();
+            double translateY = newCenterY - playerMarker.getCenterY();
+            
+            transition.setByX(translateX);
+            transition.setByY(translateY);
+            
+            // When animation completes, update actual position and reset translation
+            transition.setOnFinished(e -> {
+                playerMarker.setCenterX(newCenterX);
+                playerMarker.setCenterY(newCenterY);
+                playerMarker.setTranslateX(0);
+                playerMarker.setTranslateY(0);
+                isMoving = false;
+                playerMarker.setFill(originalColor);
+                
+                // Check for win condition after movement completes
+                if (player.getRow() == maze.getEndRow() && player.getCol() == maze.getEndCol()) {
+                    winGame();
+                }
+            });
+            
+            transition.play();
+        } catch (Exception e) {
+            // If animation fails, just move the player directly
+            System.err.println("Animation error: " + e.getMessage());
             playerMarker.setCenterX(newCenterX);
             playerMarker.setCenterY(newCenterY);
             playerMarker.setTranslateX(0);
             playerMarker.setTranslateY(0);
             isMoving = false;
             
-            // Check for win condition after movement completes
+            // Check for win condition
             if (player.getRow() == maze.getEndRow() && player.getCol() == maze.getEndCol()) {
                 winGame();
             }
-        });
-        
-        transition.play();
+        }
     }
 
     private void setupKeyHandler(Scene scene) {
         scene.setOnKeyPressed(event -> {
-            if (gameTimer == null || !gameTimer.isRunning() || isMoving) return; // Only move if game is running and not already moving
-
+            // Debug to console
+            System.out.println("Key pressed: " + event.getCode() + 
+                               ", isMoving: " + isMoving + 
+                               ", timer running: " + (gameTimer != null && gameTimer.isRunning()));
+            
+            // Add a visual indicator for key presses
+            playerMarker.setStroke(Color.RED);
+            
+            // Reset color after a brief delay
+            Timeline revertStroke = new Timeline(
+                new KeyFrame(Duration.millis(200), e -> playerMarker.setStroke(Color.BLUE))
+            );
+            revertStroke.play();
+            
             KeyCode code = event.getCode();
+            
+            // Handle special keys regardless of game state
+            if (code == KeyCode.SPACE) {
+                // Toggle timer state
+                if (gameTimer != null) {
+                    if (gameTimer.isRunning()) {
+                        gameTimer.pause();
+                        playerMarker.setOpacity(0.5); // Visual indicator of pause
+                        movesLabel.setText("Game PAUSED - press SPACE to resume");
+                    } else {
+                        gameTimer.resume();
+                        playerMarker.setOpacity(1.0);
+                        movesLabel.setText("Moves: " + movesCount);
+                    }
+                } else {
+                    startGame();
+                }
+                return;
+            }
+            
+            if (code == KeyCode.ESCAPE) {
+                // Return to main menu
+                if (gameTimer != null) {
+                    gameTimer.stop();
+                }
+                primaryStage.setScene(menuScene);
+                return;
+            }
+            
+            // Skip movement if timer isn't running
+            boolean timerActive = (gameTimer != null && gameTimer.isRunning());
+            if (!timerActive) {
+                playerMarker.setOpacity(0.5); // Visual indicator
+                playerMarker.setStroke(Color.ORANGE);
+                movesLabel.setText("Game paused - press SPACE to start");
+                return;
+            }
+            
+            // Check if player is currently in the middle of an animation
+            if (isMoving) {
+                movesLabel.setText("Wait for move to complete!");
+                return;
+            }
+
             int currentRow = player.getRow();
             int currentCol = player.getCol();
             int nextRow = currentRow;
             int nextCol = currentCol;
 
+            // Convert key code to direction
             switch (code) {
                 case UP:    nextRow--; break;
                 case DOWN:  nextRow++; break;
                 case LEFT:  nextCol--; break;
                 case RIGHT: nextCol++; break;
-                case ESCAPE: // Return to main menu
-                    if (gameTimer != null) {
-                        gameTimer.stop();
-                    }
-                    primaryStage.setScene(menuScene);
-                    return;
-                default: return; // Ignore other keys
+                default: return; // Ignore other non-special keys
             }
 
             // Check boundaries and walls
@@ -364,6 +446,8 @@ public class MazeRunnerApp extends Application {
                 !maze.isWall(nextRow, nextCol))
             {
                 movePlayer(nextRow, nextCol);
+                // Visual feedback for successful movement
+                playerMarker.setOpacity(1.0); // Ensure full opacity
                 // playSound("file:path/to/move.wav"); // Play move sound
             } else {
                 // Optional: Play wall hit sound
@@ -380,9 +464,39 @@ public class MazeRunnerApp extends Application {
     }
 
     private void startGame() {
+        // Clear any movement state
+        isMoving = false;
+        
+        // Show instructions on the screen
+        Label instructions = new Label(
+            "Use ARROW KEYS to move\n" +
+            "SPACE to pause/resume\n" +
+            "ESC to return to menu"
+        );
+        instructions.setFont(Font.font("Arial", 16));
+        instructions.setTextFill(Color.BLACK);
+        instructions.setBackground(new Background(new BackgroundFill(
+            Color.rgb(255, 255, 255, 0.7), new CornerRadii(5), null)));
+        instructions.setPadding(new Insets(5));
+        instructions.setTranslateX(10);
+        instructions.setTranslateY(10);
+        gamePane.getChildren().add(instructions);
+        
+        // Make instructions disappear after 5 seconds
+        Timeline hideInstructions = new Timeline(
+            new KeyFrame(Duration.seconds(5), e -> gamePane.getChildren().remove(instructions))
+        );
+        hideInstructions.play();
+        
+        // Make sure player is visible
+        playerMarker.setOpacity(1.0);
+        
         // playBackgroundMusic("file:path/to/music.mp3");
         gameTimer = new GameTimer(timerLabel);
         gameTimer.start();
+        
+        // Debug output
+        System.out.println("Game started, timer: " + (gameTimer != null ? gameTimer.getStatus() : "null"));
     }
 
     private void resetGame() {
